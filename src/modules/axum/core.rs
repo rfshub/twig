@@ -4,6 +4,7 @@ use crate::common::log;
 use crate::modules::router::entrance::app_router;
 use std::net::IpAddr;
 use tokio::net::TcpListener;
+use tokio::time::{timeout, Duration};
 
 // Starts the Axum web server.
 pub async fn start() {
@@ -23,12 +24,38 @@ pub async fn start() {
         }
     };
 
-    // --- Log Public and Local Addresses ---
-    let public_ip_cmd = tokio::process::Command::new("curl")
-        .arg("-s") // silent mode
-        .arg("ifconfig.me")
-        .output()
-        .await;
+    // --- Log Addresses ---
+
+    // Spawn a non-blocking task to find the public IP with a 5s timeout.
+    // This prevents the startup sequence from being blocked by a slow network call.
+    tokio::spawn(async move {
+        let public_ip_future = tokio::process::Command::new("curl")
+            .arg("-s") // silent mode
+            .arg("ifconfig.me")
+            .output();
+
+        match timeout(Duration::from_secs(5), public_ip_future).await {
+            Ok(Ok(output)) if output.status.success() => {
+                let ip_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !ip_str.is_empty() && ip_str.parse::<IpAddr>().is_ok() {
+                    log::log(
+                        log::LogLevel::Info,
+                        &format!("• Possible Public Network: http://{}:{}", ip_str, port),
+                    );
+                }
+            }
+            Err(_) => {
+                // Timeout elapsed. Log at debug level.
+                log::log(
+                    log::LogLevel::Warn,
+                    "➜ Timed out fetching public IP address (5s limit).",
+                );
+            }
+            _ => {
+                // Command failed or produced non-UTF8 output. Do nothing.
+            }
+        }
+    });
 
     // Always log the localhost address first.
     log::log(
@@ -93,19 +120,6 @@ pub async fn start() {
                     IpAddr::V6(ip) => format!("http://[{}]:{}", ip, port),
                 };
                 log::log(log::LogLevel::Debug, &format!("➜ Listening on {}", url));
-            }
-        }
-    }
-
-        if let Ok(output) = public_ip_cmd {
-        if output.status.success() {
-            let ip_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            // Validate that the output is a valid IP address before printing.
-            if !ip_str.is_empty() && ip_str.parse::<IpAddr>().is_ok() {
-                log::log(
-                    log::LogLevel::Info,
-                    &format!("• Possible Public Network: http://{}:{}", ip_str, port),
-                );
             }
         }
     }
