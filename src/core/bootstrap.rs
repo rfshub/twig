@@ -49,7 +49,7 @@ pub fn init() {
     let fid = machine_uid::get().unwrap_or_else(|_| "Unavailable".to_string());
 
     // --- Format the final output strings ---
-    let line1 = format!("{}{} {}", os_info, kernel_name, kernel_version);
+    let line1 = format!("{} {} {}", os_info, kernel_name, kernel_version);
     let line2 = format!(
         "{}({}) {} {} {} {}%",
         cpu_brand, core_count, arch, fs_type, mem_swap_str, used_ram_percent
