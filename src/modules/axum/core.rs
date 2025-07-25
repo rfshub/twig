@@ -23,6 +23,13 @@ pub async fn start() {
         }
     };
 
+    // --- Log Public and Local Addresses ---
+    let public_ip_cmd = tokio::process::Command::new("curl")
+        .arg("-s") // silent mode
+        .arg("ifconfig.me")
+        .output()
+        .await;
+
     // Always log the localhost address first.
     log::log(
         log::LogLevel::Info,
@@ -45,13 +52,18 @@ pub async fn start() {
         let mut sorted_ips = all_ips;
         sorted_ips.sort_by_key(|ip| match ip {
             IpAddr::V4(ipv4) => {
-                if ipv4.octets()[0] == 192 && ipv4.octets()[1] == 168 {
-                    (0, ip.to_string()) // Highest priority for 192.168.*
+                let octets = ipv4.octets();
+                if octets[0] == 192 && octets[1] == 168 {
+                    (0, ip.to_string()) // Priority 0: 192.168.x.x
+                } else if octets[0] == 100 {
+                    (1, ip.to_string()) // Priority 1: 100.x.x.x
+                } else if octets[0] == 10 {
+                    (2, ip.to_string()) // Priority 2: 10.x.x.x
                 } else {
-                    (1, ip.to_string()) // Next priority for other IPv4
+                    (3, ip.to_string()) // Priority 3: Other IPv4
                 }
             }
-            IpAddr::V6(_) => (2, ip.to_string()), // Lowest priority for IPv6
+            IpAddr::V6(_) => (4, ip.to_string()), // Priority 4: IPv6
         });
 
         let display_limit = 2;
@@ -85,6 +97,20 @@ pub async fn start() {
         }
     }
 
+        if let Ok(output) = public_ip_cmd {
+        if output.status.success() {
+            let ip_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // Validate that the output is a valid IP address before printing.
+            if !ip_str.is_empty() && ip_str.parse::<IpAddr>().is_ok() {
+                log::log(
+                    log::LogLevel::Info,
+                    &format!("• Possible Public Network: http://{}:{}", ip_str, port),
+                );
+            }
+        }
+    }
+
+    // Log that the server is ready right before starting the serving loop.
     log::log(log::LogLevel::Info, "✓ Ready to handle requests");
 
     // Start serving requests.
