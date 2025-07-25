@@ -1,10 +1,11 @@
 // src/core/bootstrap.rs
 
 use crate::common::log;
+use crate::modules;
 use chrono::Local;
 use sysinfo::{Disks, System};
 
-pub fn init() {
+pub async fn init() {
     let cargo_version = env!("CARGO_PKG_VERSION");
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
     let sys = System::new_all();
@@ -64,12 +65,11 @@ pub fn init() {
         cpu_brand, core_count, arch, fs_type, mem_swap_str, used_ram_percent
     );
 
-    log::println("");
-
     const MAGENTA: &str = "\x1b[35m";
     const RESET: &str = "\x1b[0m";
     const LINK: &str = "\x1b]8;;https://rfs.im\x07@rfshub\x1b]8;;\x07";
 
+    log::println("");
     log::println(&format!("  {}{}{}{} (Preview)", MAGENTA, "▲ Twig ", cargo_version, RESET));
     log::println(&format!("  - Timestamp: {}", timestamp));
     log::println("  - Copyright:");
@@ -80,5 +80,8 @@ pub fn init() {
     log::println(&format!("    ✓ {}", line2));
     log::println(&format!("    ✓ {}", fid));
     log::println("");
-    log::log(log::LogLevel::Info, "✓ Starting...");
+    log::log(log::LogLevel::Info, "➜ Starting...");
+
+    // --- Start Services ---
+    modules::axum::core::start().await;
 }

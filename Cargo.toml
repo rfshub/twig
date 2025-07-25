@@ -10,3 +10,6 @@ lazy_static = "1.4.0"
 sysinfo = "0.30"
 machine-uid = "0.5"
 dirs = "5.0"
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+get_if_addrs = "0.5"

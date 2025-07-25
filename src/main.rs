@@ -2,8 +2,10 @@
 
 mod common;
 mod core;
+mod modules;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     common::log::init();
-    core::bootstrap::init();
+    core::bootstrap::init().await;
 }
