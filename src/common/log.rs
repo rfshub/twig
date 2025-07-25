@@ -74,7 +74,7 @@ pub fn log(level: LogLevel, content: &str) {
     let _ = stdout.reset();
     let _ = write!(&mut stdout, "{} ", content);
     let _ = stdout.set_color(ColorSpec::new().set_fg(Some(diff_color)));
-    let _ = writeln!(&mut stdout, "+{}", time_diff_str);
+    let _ = writeln!(&mut stdout, "+{}\x1b[0m", time_diff_str);
     let _ = stdout.reset();
 
     // --- File Logging ---
