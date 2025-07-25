@@ -48,7 +48,7 @@ pub fn init() {
     let fid = machine_uid::get().unwrap_or_else(|_| "Unavailable".to_string());
 
     let line1 = if cfg!(target_os = "linux") && os_info.to_lowercase().contains("debian") {
-        os_info
+        format!("{} {}", os_info, kernel_version)
     } else if cfg!(target_os = "macos") {
         format!("{}{} {}", os_info, kernel_name, kernel_version)
     } else {
