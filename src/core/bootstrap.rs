@@ -12,7 +12,6 @@ pub fn init() {
     // OS and Kernel
     let mut os_info =
         System::long_os_version().unwrap_or_else(|| System::os_version().unwrap_or_default());
-    // Correct "MacOS" to "macOS" as requested.
     if os_info.starts_with("MacOS") {
         os_info = os_info.replace("MacOS", "macOS");
     }
@@ -48,8 +47,14 @@ pub fn init() {
     // Machine ID
     let fid = machine_uid::get().unwrap_or_else(|_| "Unavailable".to_string());
 
-    // --- Format the final output strings ---
-    let line1 = format!("{} {} {}", os_info, kernel_name, kernel_version);
+    let line1 = if cfg!(target_os = "linux") && os_info.to_lowercase().contains("debian") {
+        os_info
+    } else if cfg!(target_os = "macos") {
+        format!("{}{} {}", os_info, kernel_name, kernel_version)
+    } else {
+        format!("{} {} {}", os_info, kernel_name, kernel_version)
+    };
+
     let line2 = format!(
         "{}({}) {} {} {} {}%",
         cpu_brand, core_count, arch, fs_type, mem_swap_str, used_ram_percent
