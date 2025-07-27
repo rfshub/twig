@@ -1,10 +1,10 @@
 // src/core/bootstrap.rs
 
-use crate::common::log;
+use crate::common::{env, log};
+use crate::middlewares::rate_limiting;
 use crate::modules;
 use chrono::Local;
 use sysinfo::{Disks, System};
-use crate::middlewares::rate_limiting;
 
 pub async fn init() {
     let cargo_version = env!("CARGO_PKG_VERSION");
@@ -12,6 +12,13 @@ pub async fn init() {
     let sys = System::new_all();
 
     // --- Gather all required information first ---
+
+    let stage_raw = &env::CONFIG.stage;
+    let stage = match stage_raw.to_lowercase().as_str() {
+        "dev" | "development" => "Development".to_string(),
+        // Any other value will default to Production.
+        _ => "Production".to_string(),
+    };
 
     // OS and Kernel
     let mut os_info =
@@ -42,7 +49,8 @@ pub async fn init() {
     const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
     let total_ram_gb = (sys.total_memory() as f64 / GIB).round() as u64;
     let total_swap_gb = (sys.total_swap() as f64 / GIB).round() as u64;
-    let used_ram_percent = (sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0).round() as u64;
+    let used_ram_percent =
+        (sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0).round() as u64;
     let mem_swap_str = if total_swap_gb > 0 {
         format!("{}+{}GB", total_ram_gb, total_swap_gb)
     } else {
@@ -71,12 +79,16 @@ pub async fn init() {
     const LINK: &str = "\x1b]8;;https://rfs.im\x07@rfshub\x1b]8;;\x07";
 
     log::println("");
-    log::println(&format!("  {}{}{}{} (Preview)", MAGENTA, "▲ Twig ", cargo_version, RESET));
+    log::println(&format!(
+        "  {}{}{}{} (Preview)",
+        MAGENTA, "▲ Twig ", cargo_version, RESET
+    ));
     log::println(&format!("  - Timestamp: {}", timestamp));
     log::println("  - Copyright:");
     log::println(&format!("    ✓ 2025 © Canmi {}, rfs ecosystem", LINK));
     log::println("    ✓ Released under the AGPL-3.0 License");
     log::println("  - Environment:");
+    log::println(&format!("    ✓ {}", stage));
     log::println(&format!("    ✓ {}", line1));
     log::println(&format!("    ✓ {}", line2));
     log::println(&format!("    ✓ {}", fid));

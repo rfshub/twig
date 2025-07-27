@@ -1,5 +1,6 @@
 // src/common/log.rs
 
+use crate::common::env;
 use chrono::Local;
 use lazy_static::lazy_static;
 use std::fs::{self};
@@ -15,26 +16,36 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 lazy_static! {
     static ref LAST_LOG_TIME: Mutex<Option<Instant>> = Mutex::new(None);
     static ref LOG_SENDER: Arc<Mutex<Option<mpsc::Sender<String>>>> = Arc::new(Mutex::new(None));
+    static ref CONFIGURED_LOG_LEVEL: LogLevel = LogLevel::from_str(&env::CONFIG.log_level);
 }
 
-// --- Public API ---
-
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum LogLevel {
-    Info,
-    Debug,
-    Warn,
-    Error,
+    Error = 3,
+    Warn = 2,
+    Info = 1,
+    Debug = 0,
+}
+
+impl LogLevel {
+    fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "error" => LogLevel::Error,
+            "warn" => LogLevel::Warn,
+            "info" => LogLevel::Info,
+            "debug" => LogLevel::Debug,
+            _ => LogLevel::Info, // Default to Info if the value is invalid.
+        }
+    }
 }
 
 // Initializes both console and file logging systems.
-// This should be called once at the start of the application.
 pub fn init() {
     *LAST_LOG_TIME.lock().unwrap() = Some(Instant::now());
     start_file_logger();
 }
 
 // A wrapper around standard println that also logs to the file.
-// It prints the content directly to the console as-is.
 pub fn println(content: &str) {
     println!("{}", content);
     log_to_file(content.to_string());
@@ -42,6 +53,13 @@ pub fn println(content: &str) {
 
 // Logs a formatted message to the console and a clean version to the file.
 pub fn log(level: LogLevel, content: &str) {
+    // --- Log Level Filtering ---
+    // This is the core filtering logic. It checks if the incoming message's
+    // severity is high enough to be logged based on the current configuration.
+    if (level as u8) < (*CONFIGURED_LOG_LEVEL as u8) {
+        return;
+    }
+
     // --- Console Logging ---
     let now = Instant::now();
     let time_diff_str = {
