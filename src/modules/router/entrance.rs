@@ -1,12 +1,21 @@
 // src/modules/router/entrance.rs
 
-use axum::{routing::get, Router};
+use crate::core::response;
+use crate::middlewares;
+use axum::{response::Response, routing::get, Router};
+use serde_json::json;
 
-// Creates and returns the main application router.
 pub fn app_router() -> Router {
-    Router::new().route("/", get(root_handler))
+    let router = Router::new()
+        .route("/", get(root_handler))
+        .fallback(handler_404);
+    middlewares::middleware::stack(router)
 }
 
-async fn root_handler() -> &'static str {
-    "Hello World"
+async fn root_handler() -> Response {
+    response::success(Some(json!({ "message": "Hello World" })))
+}
+
+async fn handler_404() -> Response {
+    response::not_found()
 }

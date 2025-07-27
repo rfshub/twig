@@ -3,6 +3,7 @@
 mod common;
 mod core;
 mod modules;
+mod middlewares;
 
 #[tokio::main]
 async fn main() {

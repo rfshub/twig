@@ -2,11 +2,10 @@
 
 use crate::common::log;
 use crate::modules::router::entrance::app_router;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use tokio::net::TcpListener;
 use tokio::time::{timeout, Duration};
 
-// Starts the Axum web server.
 pub async fn start() {
     let app = app_router();
     let port = 30721;
@@ -45,7 +44,6 @@ pub async fn start() {
                 }
             }
             Err(_) => {
-                // Timeout elapsed. Log at debug level.
                 log::log(
                     log::LogLevel::Warn,
                     "➜ Timed out fetching public IP address (5s limit).",
@@ -57,7 +55,6 @@ pub async fn start() {
         }
     });
 
-    // Always log the localhost address first.
     log::log(
         log::LogLevel::Info,
         &format!("✓ Listening on http://localhost:{}", port),
@@ -81,16 +78,16 @@ pub async fn start() {
             IpAddr::V4(ipv4) => {
                 let octets = ipv4.octets();
                 if octets[0] == 192 && octets[1] == 168 {
-                    (0, ip.to_string()) // Priority 0: 192.168.x.x
+                    (0, ip.to_string()) // L0: 192.168.x.x
                 } else if octets[0] == 100 {
-                    (1, ip.to_string()) // Priority 1: 100.x.x.x
+                    (1, ip.to_string()) // L1: 100.x.x.x
                 } else if octets[0] == 10 {
-                    (2, ip.to_string()) // Priority 2: 10.x.x.x
+                    (2, ip.to_string()) // L2: 10.x.x.x
                 } else {
-                    (3, ip.to_string()) // Priority 3: Other IPv4
+                    (3, ip.to_string()) // L3: Other IPv4
                 }
             }
-            IpAddr::V6(_) => (4, ip.to_string()), // Priority 4: IPv6
+            IpAddr::V6(_) => (4, ip.to_string()), // L4: IPv6
         });
 
         let display_limit = 2;
@@ -124,11 +121,14 @@ pub async fn start() {
         }
     }
 
-    // Log that the server is ready right before starting the serving loop.
     log::log(log::LogLevel::Info, "✓ Ready to handle requests");
 
-    // Start serving requests.
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
         log::log(
             log::LogLevel::Error,
             &format!("✗ Axum server error: {}", e),

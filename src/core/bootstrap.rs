@@ -4,6 +4,7 @@ use crate::common::log;
 use crate::modules;
 use chrono::Local;
 use sysinfo::{Disks, System};
+use crate::middlewares::rate_limiting;
 
 pub async fn init() {
     let cargo_version = env!("CARGO_PKG_VERSION");
@@ -83,5 +84,6 @@ pub async fn init() {
     log::log(log::LogLevel::Info, "➜ Starting...");
 
     // --- Start Services ---
+    rate_limiting::start_cleanup_task();
     modules::axum::core::start().await;
 }
