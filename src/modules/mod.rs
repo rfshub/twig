@@ -2,3 +2,4 @@
 
 pub mod axum;
 pub mod router;
+pub mod app;
