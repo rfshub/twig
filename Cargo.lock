@@ -646,6 +646,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
+name = "linux-sysinfo"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f32f554bda089b419a0d58c65e170387c4a41afdf1820a88415016fcf9dbb429"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1327,6 +1337,7 @@ dependencies = [
  "dotenvy",
  "get_if_addrs",
  "lazy_static",
+ "linux-sysinfo",
  "machine-uid",
  "once_cell",
  "procfs",

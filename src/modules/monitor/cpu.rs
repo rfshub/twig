@@ -7,9 +7,6 @@ use serde_json::json;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use std::{thread, time};
 
-#[cfg(target_os = "macos")]
-use crate::modules::macmon::fetch::fetch_macmon;
-
 #[derive(Serialize)]
 struct CoreUsage {
     name: String,
@@ -30,56 +27,9 @@ struct CpuFrequency {
     current_frequency_ghz: f32,
 }
 
-#[cfg(target_os = "linux")]
-pub async fn get_cpu_handler() -> Response {
-    use procfs::CpuStat;
+// --- macOS Implementations ---
 
-    let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
-    let cpu_brand = s.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
-
-    let stat1 = match CpuStat::new() {
-        Ok(stat) => stat,
-        Err(_) => return response::internal_error(),
-    };
-
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
-    let stat2 = match CpuStat::new() {
-        Ok(stat) => stat,
-        Err(_) => return response::internal_error(),
-    };
-
-    let total_diff = stat2.total - stat1.total;
-    let idle_diff = (stat2.idle + stat2.iowait.unwrap_or(0)) - (stat1.idle + stat1.iowait.unwrap_or(0));
-
-    let global_usage = if total_diff == 0 {
-        0.0
-    } else {
-        100.0 * (total_diff - idle_diff) as f32 / total_diff as f32
-    };
-
-    let per_core: Vec<CoreUsage> = stat1.cpu_times.iter().zip(stat2.cpu_times.iter()).enumerate().map(|(i, (c1, c2))| {
-        let total_diff = c2.total() - c1.total();
-        let idle_diff = (c2.idle() + c2.iowait.unwrap_or(0)) - (c1.idle() + c1.iowait.unwrap_or(0));
-        let usage = if total_diff == 0 {
-            0.0
-        } else {
-            100.0 * (total_diff - idle_diff) as f32 / total_diff as f32
-        };
-        CoreUsage { name: i.to_string(), usage }
-    }).collect();
-
-    let cpu_info = CpuInfo {
-        cpu: cpu_brand,
-        cores: per_core.len(),
-        global_usage,
-        per_core,
-    };
-
-    response::success(Some(json!(cpu_info)))
-}
-
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 pub async fn get_cpu_handler() -> Response {
     let mut system = System::new_with_specifics(
         RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
@@ -116,8 +66,9 @@ pub async fn get_cpu_handler() -> Response {
 
 #[cfg(target_os = "macos")]
 pub async fn get_cpu_frequency_handler() -> Response {
-    use std::process::Command;
+    use crate::modules::macmon::fetch::fetch_macmon;
     use regex::Regex;
+    use std::process::Command;
 
     let output = match Command::new("fastfetch").output() {
         Ok(o) => o,
@@ -151,38 +102,107 @@ pub async fn get_cpu_frequency_handler() -> Response {
     response::success(Some(json!(freq_info)))
 }
 
-#[cfg(not(target_os = "macos"))]
+// --- Linux Implementations ---
+
+#[cfg(target_os = "linux")]
+pub async fn get_cpu_handler() -> Response {
+    use linux_sysinfo::get_cpu_usage_json;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct LinuxCoreUsage {
+        core: usize,
+        usage: f32,
+    }
+
+    // Get static CPU info from sysinfo.
+    let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
+    let cpu_brand = s
+        .cpus()
+        .first()
+        .map(|cpu| cpu.brand().trim().to_string())
+        .unwrap_or_else(|| "".to_string());
+
+    // Get usage from the linux-sysinfo crate.
+    let usage_json = match get_cpu_usage_json() {
+        Ok(json) => json,
+        Err(_) => return response::internal_error(),
+    };
+
+    let per_core_usage: Vec<LinuxCoreUsage> = match serde_json::from_str(&usage_json) {
+        Ok(data) => data,
+        Err(_) => return response::internal_error(),
+    };
+
+    if per_core_usage.is_empty() {
+        return response::internal_error();
+    }
+
+    let total_usage: f32 = per_core_usage.iter().map(|c| c.usage).sum();
+    let cores = per_core_usage.len();
+    let global_usage = if cores > 0 { total_usage / cores as f32 } else { 0.0 };
+
+    let per_core: Vec<CoreUsage> = per_core_usage
+        .into_iter()
+        .map(|c| CoreUsage {
+            name: c.core.to_string(),
+            usage: c.usage,
+        })
+        .collect();
+
+    let cpu_info = CpuInfo {
+        cpu: cpu_brand,
+        cores,
+        global_usage,
+        per_core,
+    };
+
+    response::success(Some(json!(cpu_info)))
+}
+
+#[cfg(target_os = "linux")]
 pub async fn get_cpu_frequency_handler() -> Response {
+    use std::fs;
     use std::process::Command;
-    use regex::Regex;
-    
-    // Get max frequency from sysinfo as a reliable fallback.
-    let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
+
+    let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::frequency()));
     let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
     let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
-    
-    let mut current_frequency_ghz = 0.0;
 
-    // Execute `cpupower` and parse the output.
-    if let Ok(output) = Command::new("cpupower").arg("frequency-info").output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // If it's a virtualized host or driver is missing, current frequency will remain 0.0
-        if !stdout.contains("no or unknown cpufreq driver") && !stdout.contains("Unable to call") {
-            let re = Regex::new(r"current CPU frequency:\s+([\d.]+)\s*(G|M|k)Hz").unwrap();
-            if let Some(caps) = re.captures(&stdout) {
-                if let (Some(val_str), Some(unit_str)) = (caps.get(1), caps.get(2)) {
-                    if let Ok(val) = val_str.as_str().parse::<f32>() {
-                        current_frequency_ghz = match unit_str.as_str() {
-                            "GHz" => val,
-                            "MHz" => val / 1000.0,
-                            "kHz" => val / 1_000_000.0,
-                            _ => 0.0,
-                        };
-                    }
+    // Check for virtualization, as VMs may not report current frequency correctly.
+    let is_vm = match Command::new("systemd-detect-virt").output() {
+        Ok(out) => {
+            let result = String::from_utf8_lossy(&out.stdout);
+            result.trim() != "none"
+        }
+        Err(_) => false,
+    };
+
+    let current_frequency_ghz = if is_vm {
+        // For VMs, current frequency is often not available or variable.
+        // We return the max frequency as a sensible default.
+        max_frequency_ghz
+    } else {
+        // On bare metal, read the current average frequency from the /sys filesystem.
+        let core_count = num_cpus::get();
+        let mut freqs_khz = Vec::new();
+
+        for i in 0..core_count {
+            let path = format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq", i);
+            if let Ok(freq_str) = fs::read_to_string(path) {
+                if let Ok(freq_khz) = freq_str.trim().parse::<u64>() {
+                    freqs_khz.push(freq_khz);
                 }
             }
         }
-    }
+
+        if freqs_khz.is_empty() {
+            max_frequency_ghz // Fallback if we couldn't read any frequencies.
+        } else {
+            let avg_freq_khz: u64 = freqs_khz.iter().sum::<u64>() / freqs_khz.len() as u64;
+            (avg_freq_khz as f32) / 1_000_000.0 // Convert kHz to GHz.
+        }
+    };
 
     let freq_info = CpuFrequency {
         max_frequency_ghz,
