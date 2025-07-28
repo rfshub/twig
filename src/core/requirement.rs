@@ -6,7 +6,7 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-const MAC_COMMANDS: [&str; 6] = ["brew", "macmon", "netstat", "nettop", "fastfetch", "speedtest-cli"];
+const MAC_COMMANDS: [&str; 8] = ["df", "mount", "brew", "netstat", "nettop", "macmon", "fastfetch", "speedtest-cli"];
 const LINUX_COMMANDS: [&str; 6] = ["systemd", "systemd-detect-virt", "lsblk", "cpupower", "fastfetch", "speedtest"];
 
 pub fn run_dependency_check() {
