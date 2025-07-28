@@ -3,6 +3,7 @@
 use crate::common::{env, log};
 use crate::middlewares::rate_limiting;
 use crate::modules;
+use crate::core::requirement::run_dependency_check;
 use chrono::Local;
 use sysinfo::{Disks, System};
 
@@ -12,7 +13,6 @@ pub async fn init() {
     let sys = System::new_all();
 
     // --- Gather all required information first ---
-
     let stage_raw = &env::CONFIG.stage;
     let stage = match stage_raw.to_lowercase().as_str() {
         "dev" | "development" => "Development".to_string(),
@@ -96,6 +96,7 @@ pub async fn init() {
     log::log(log::LogLevel::Info, "➜ Starting...");
 
     // --- Start Services ---
+    run_dependency_check();
     rate_limiting::start_cleanup_task();
     modules::axum::core::start().await;
 }

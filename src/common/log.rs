@@ -1,4 +1,4 @@
-// src/common/log.rs
+/* src/common/log.rs */
 
 use crate::common::env;
 use chrono::Local;
@@ -12,11 +12,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-// --- Global State for Console Logging ---
+// --- Global State for Logging ---
 lazy_static! {
     static ref LAST_LOG_TIME: Mutex<Option<Instant>> = Mutex::new(None);
     static ref LOG_SENDER: Arc<Mutex<Option<mpsc::Sender<String>>>> = Arc::new(Mutex::new(None));
     static ref CONFIGURED_LOG_LEVEL: LogLevel = LogLevel::from_str(&env::CONFIG.log_level);
+    static ref LOG_FILE_PATH: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -45,6 +46,11 @@ pub fn init() {
     start_file_logger();
 }
 
+// Retrieves the path of the current log file, if available.
+pub fn get_log_path() -> Option<PathBuf> {
+    LOG_FILE_PATH.lock().unwrap().clone()
+}
+
 // A wrapper around standard println that also logs to the file.
 pub fn println(content: &str) {
     println!("{}", content);
@@ -54,8 +60,6 @@ pub fn println(content: &str) {
 // Logs a formatted message to the console and a clean version to the file.
 pub fn log(level: LogLevel, content: &str) {
     // --- Log Level Filtering ---
-    // This is the core filtering logic. It checks if the incoming message's
-    // severity is high enough to be logged based on the current configuration.
     if (level as u8) < (*CONFIGURED_LOG_LEVEL as u8) {
         return;
     }
@@ -75,7 +79,6 @@ pub fn log(level: LogLevel, content: &str) {
 
     let mut stdout = StandardStream::stdout(ColorChoice::Always);
     let time_str = Local::now().format("%H:%M:%S");
-
     let timestamp_color = match level {
         LogLevel::Info => Color::White,
         LogLevel::Debug => Color::Magenta,
@@ -116,7 +119,11 @@ fn start_file_logger() {
 
     thread::spawn(move || {
         let log_path = match create_log_path() {
-            Ok(path) => Some(path),
+            Ok(path) => {
+                // Store the path for global access
+                *LOG_FILE_PATH.lock().unwrap() = Some(path.clone());
+                Some(path)
+            }
             Err(_) => None,
         };
 
@@ -124,7 +131,6 @@ fn start_file_logger() {
             return; // Failed to create log path, exit thread.
         }
         let log_path = log_path.unwrap();
-
         let mut buffer: Vec<String> = Vec::with_capacity(10);
         let timeout = Duration::from_secs(10);
 
@@ -165,17 +171,19 @@ fn flush_buffer_to_file(path: &PathBuf, buffer: &mut Vec<String>) {
 
 // Creates the log directory and returns the full path for the new log file.
 fn create_log_path() -> io::Result<PathBuf> {
-    let home_dir = dirs::home_dir().ok_or(io::Error::new(
-        io::ErrorKind::NotFound,
-        "Home directory not found",
-    ))?;
     let now = Local::now();
-    let dir = home_dir
+    let base_dir = if cfg!(windows) {
+        dirs::home_dir().ok_or(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Home directory not found",
+        ))?
         .join(".canmi/rfs/twig/logs")
-        .join(now.format("%Y-%m-%d").to_string());
+    } else {
+        PathBuf::from("/opt/rfs/twig/logs")
+    };
 
+    let dir = base_dir.join(now.format("%Y-%m-%d").to_string());
     fs::create_dir_all(&dir)?;
-
     let file_name = now.format("%H-%M-%S.log").to_string();
     Ok(dir.join(file_name))
 }
