@@ -21,8 +21,8 @@ rand = "0.8"
 dotenvy = "0.15"
 regex = "1"
 once_cell = "1.21.3"
-num_cpus = "1.17.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = "0.16"
+num_cpus = "1.17.0"
 linux-sysinfo = "0.1.0"
