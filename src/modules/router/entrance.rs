@@ -9,6 +9,7 @@ pub fn app_router() -> Router {
     let router = Router::new()
         .route("/", get(app::root::get_root_handler))
         .route("/v1/system/information",get(system::info::get_sysinfo_handler),)
+        .route("/v1/system/ipconfig", get(system::ipconfig::get_ipconfig_handler))
         .route("/v1/monitor/cpu", get(monitor::cpu::get_cpu_handler))
         .route("/v1/monitor/cpu/frequency", get(monitor::cpu::get_cpu_frequency_handler))
         .route("/v1/monitor/memory", get(monitor::memory::get_memory_handler))
