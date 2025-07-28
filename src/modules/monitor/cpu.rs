@@ -8,7 +8,7 @@ use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
 #[derive(Serialize)]
 struct CoreUsage {
-    name: String,
+    core: String,
     usage: f32,
 }
 
@@ -50,7 +50,7 @@ pub async fn get_cpu_handler() -> Response {
         .iter()
         .enumerate()
         .map(|(i, cpu)| CoreUsage {
-            name: i.to_string(),
+            core: i.to_string(),
             usage: cpu.cpu_usage(),
         })
         .collect();
@@ -161,7 +161,7 @@ pub async fn get_cpu_handler() -> Response {
     let per_core: Vec<CoreUsage> = per_core_usage
         .into_iter()
         .map(|c| CoreUsage {
-            name: c.core.to_string(),
+            core: c.core.to_string(),
             usage: c.usage,
         })
         .collect();
