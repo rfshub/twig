@@ -108,6 +108,7 @@ pub async fn get_cpu_frequency_handler() -> Response {
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
     use linux_sysinfo::get_cpu_usage_json;
+    use regex::Regex;
     use serde::Deserialize;
 
     #[derive(Deserialize)]
@@ -118,11 +119,21 @@ pub async fn get_cpu_handler() -> Response {
 
     // Get static CPU info from sysinfo.
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
-    let cpu_brand = s
+    let mut cpu_brand = s
         .cpus()
         .first()
         .map(|cpu| cpu.brand().trim().to_string())
         .unwrap_or_else(|| "".to_string());
+
+    let re_radeon = Regex::new(r"\s+with Radeon Graphics$").unwrap();
+    cpu_brand = re_radeon.replace_all(&cpu_brand, "").to_string();
+
+    // If it contains "Graph" (case-insensitive) and has 2+ spaces, shorten to first two words.
+    let re_graph_check = Regex::new(r"(?i)graph").unwrap();
+    if cpu_brand.matches(' ').count() >= 2 && re_graph_check.is_match(&cpu_brand) {
+        let re_truncate = Regex::new(r"^(\S+\s+\S+)\s.*$").unwrap();
+        cpu_brand = re_truncate.replace_all(&cpu_brand, "$1").to_string();
+    }
 
     // Get usage from the linux-sysinfo crate.
     let usage_json = match get_cpu_usage_json() {
