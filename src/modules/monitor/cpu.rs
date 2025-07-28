@@ -5,7 +5,6 @@ use axum::response::Response;
 use serde::Serialize;
 use serde_json::json;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
-use std::{thread, time};
 
 #[derive(Serialize)]
 struct CoreUsage {
@@ -31,6 +30,8 @@ struct CpuFrequency {
 
 #[cfg(target_os = "macos")]
 pub async fn get_cpu_handler() -> Response {
+    use std::{thread, time};
+
     let mut system = System::new_with_specifics(
         RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
     );
@@ -140,7 +141,11 @@ pub async fn get_cpu_handler() -> Response {
 
     let total_usage: f32 = per_core_usage.iter().map(|c| c.usage).sum();
     let cores = per_core_usage.len();
-    let global_usage = if cores > 0 { total_usage / cores as f32 } else { 0.0 };
+    let global_usage = if cores > 0 {
+        total_usage / cores as f32
+    } else {
+        0.0
+    };
 
     let per_core: Vec<CoreUsage> = per_core_usage
         .into_iter()
@@ -164,8 +169,12 @@ pub async fn get_cpu_handler() -> Response {
 pub async fn get_cpu_frequency_handler() -> Response {
     use std::fs;
     use std::process::Command;
+    use num_cpus;
 
-    let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::frequency()));
+    // Get max frequency from sysinfo, as it's reliable for this.
+    let system = System::new_with_specifics(
+        RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()),
+    );
     let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
     let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
 
@@ -175,7 +184,7 @@ pub async fn get_cpu_frequency_handler() -> Response {
             let result = String::from_utf8_lossy(&out.stdout);
             result.trim() != "none"
         }
-        Err(_) => false,
+        Err(_) => false, // Assume not a VM if the command fails.
     };
 
     let current_frequency_ghz = if is_vm {
