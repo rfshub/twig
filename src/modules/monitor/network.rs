@@ -145,7 +145,7 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
-    use sysinfo::{System, SystemExt};
+    use sysinfo::{traits::SystemExt, System};
     use std::thread;
     use std::time::Duration;
 
