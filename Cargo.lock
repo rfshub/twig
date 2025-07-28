@@ -1248,6 +1248,7 @@ dependencies = [
  "get_if_addrs",
  "lazy_static",
  "machine-uid",
+ "once_cell",
  "rand 0.8.5",
  "regex",
  "serde",
