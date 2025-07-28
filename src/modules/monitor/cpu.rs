@@ -33,76 +33,53 @@ struct CpuFrequency {
     current_frequency_ghz: f32,
 }
 
-// Helper functions for Linux CPU Usage from /proc/stat
-#[cfg(target_os = "linux")]
-fn read_proc_stat() -> Result<Vec<Vec<u64>>, std::io::Error> {
-    let content = std::fs::read_to_string("/proc/stat")?;
-    let mut stats = Vec::new();
-    for line in content.lines() {
-        if line.starts_with("cpu") {
-            let parts: Vec<u64> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
-            if !parts.is_empty() {
-                stats.push(parts);
-            }
-        }
-    }
-    Ok(stats)
-}
-
-#[cfg(target_os = "linux")]
-fn calculate_usage(prev: &[u64], curr: &[u64]) -> f32 {
-    let prev_idle = prev.get(3).unwrap_or(&0) + prev.get(4).unwrap_or(&0);
-    let curr_idle = curr.get(3).unwrap_or(&0) + curr.get(4).unwrap_or(&0);
-
-    let prev_total: u64 = prev.iter().sum();
-    let curr_total: u64 = curr.iter().sum();
-
-    let total_d = curr_total.saturating_sub(prev_total);
-    let idle_d = curr_idle.saturating_sub(prev_idle);
-
-    if total_d == 0 {
-        0.0
-    } else {
-        // Calculation: (totald - idled) / totald
-        ((total_d - idle_d) as f32 / total_d as f32) * 100.0
-    }
-}
-
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
-    // Get static info from sysinfo (brand, core count)
+    use procfs::stat::Stat;
+
+    // Get static info from sysinfo (brand)
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
     let cpu_brand = s.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
     
-    // Calculate usage from /proc/stat snapshots
-    let prev_stats = match read_proc_stat() {
+    // Calculate usage from /proc/stat using the procfs crate
+    let stat1 = match Stat::new() {
         Ok(s) => s,
         Err(_) => return response::internal_error(),
     };
     
-    // Use a 1-second sleep interval as requested for accuracy.
     thread::sleep(time::Duration::from_secs(1));
     
-    let curr_stats = match read_proc_stat() {
+    let stat2 = match Stat::new() {
         Ok(s) => s,
         Err(_) => return response::internal_error(),
     };
+
+    // Calculate global usage from the total "cpu" line
+    let total_diff = stat2.total() - stat1.total();
+    let total_time = total_diff.total();
+    let idle_time = total_diff.idle + total_diff.iowait.unwrap_or(0);
+    let global_usage = if total_time == 0 {
+        0.0
+    } else {
+        100.0 * (total_time - idle_time) as f32 / total_time as f32
+    };
     
-    if prev_stats.is_empty() || curr_stats.is_empty() || prev_stats.len() != curr_stats.len() {
-        return response::internal_error();
-    }
-    
-    let global_usage = calculate_usage(&prev_stats[0], &curr_stats[0]);
-    
-    let cores = prev_stats.len() - 1;
-    let per_core: Vec<CoreUsage> = (1..=cores).map(|i| {
-        let usage = calculate_usage(&prev_stats[i], &curr_stats[i]);
-        CoreUsage { name: (i-1).to_string(), usage }
+    // Calculate per-core usage, skipping the first 'total' entry in cpu_time
+    let per_core: Vec<CoreUsage> = stat1.cpu_time.iter().zip(stat2.cpu_time.iter()).skip(1).enumerate().map(|(i, (c1, c2))| {
+        let diff = *c2 - *c1;
+        let total_time = diff.total();
+        let idle_time = diff.idle + diff.iowait.unwrap_or(0);
+        let usage = if total_time == 0 {
+            0.0
+        } else {
+            100.0 * (total_time - idle_time) as f32 / total_time as f32
+        };
+        CoreUsage { name: i.to_string(), usage }
     }).collect();
 
     let cpu_info = CpuInfo {
         cpu: cpu_brand,
-        cores,
+        cores: per_core.len(),
         global_usage,
         per_core,
     };
