@@ -3,8 +3,10 @@
 use axum::response::IntoResponse;
 use serde::Serialize;
 use std::process::Command;
-use std::collections::HashMap;
 use serde_json::json;
+
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
 
 #[derive(Serialize, Debug)]
 pub struct IpConfig {
@@ -51,7 +53,6 @@ pub async fn get_ipconfig_handler() -> impl IntoResponse {
     use crate::core::response::{success, error};
     use serde_json::json;
     use axum::http::StatusCode;
-
     let output = Command::new("ip").arg("a").output();
 
     match output {
@@ -224,7 +225,6 @@ fn parse_linux_ip_a(text: &str) -> Vec<IpConfig> {
             if let Some(name) = line.split(": ").nth(1) {
                 let iface = name.split_whitespace().next().unwrap_or("");
                 current.device_name = iface.to_string();
-
                 current.status = if line.contains("UP") { "active" } else { "inactive" }.to_string();
                 if let Some(mtu) = line.split("mtu").nth(1) {
                     current.mtu = mtu.trim().split_whitespace().next().and_then(|v| v.parse().ok());
