@@ -24,14 +24,12 @@ struct DiskGroup {
 }
 
 // --- macOS Implementation ---
-
 #[cfg(target_os = "macos")]
 pub async fn get_storage_handler() -> Response {
     let disks = Disks::new_with_refreshed_list();
     let mut disk_map: HashMap<String, (bool, Vec<PartitionInfo>)> = HashMap::new();
 
     fn extract_disk_id(name: &str) -> String {
-        // This logic is specific to macOS disk naming conventions like 'disk3s1'.
         if let Some((base, _)) = name.split_once('s') {
             base.to_string()
         } else {
@@ -47,7 +45,6 @@ pub async fn get_storage_handler() -> Response {
         let entry = disk_map
             .entry(disk_id.clone())
             .or_insert_with(|| (is_removable, Vec::new()));
-
         entry.1.push(PartitionInfo {
             mount_point: disk.mount_point().to_string_lossy().into_owned(),
             file_system: disk.file_system().to_string_lossy().into_owned(),
