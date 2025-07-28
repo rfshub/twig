@@ -33,7 +33,7 @@ struct CpuFrequency {
     current_frequency_ghz: f32,
 }
 
-// Linux CPU Usage from /proc/stat
+// Helper functions for Linux CPU Usage from /proc/stat
 #[cfg(target_os = "linux")]
 fn read_proc_stat() -> Result<Vec<Vec<u64>>, std::io::Error> {
     let content = std::fs::read_to_string("/proc/stat")?;
@@ -71,25 +71,29 @@ fn calculate_usage(prev: &[u64], curr: &[u64]) -> f32 {
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
     // Get static info from sysinfo (brand, core count)
-    let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::brand()));
+    // CORRECTED: Use CpuRefreshKind::new() for basic info which includes brand.
+    let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
     let cpu_brand = s.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
+    
     // Calculate usage from /proc/stat snapshots
     let prev_stats = match read_proc_stat() {
         Ok(s) => s,
         Err(_) => return response::internal_error(),
     };
-
+    
     thread::sleep(time::Duration::from_millis(200));
+    
     let curr_stats = match read_proc_stat() {
         Ok(s) => s,
         Err(_) => return response::internal_error(),
     };
-
+    
     if prev_stats.is_empty() || curr_stats.is_empty() || prev_stats.len() != curr_stats.len() {
         return response::internal_error();
     }
-
+    
     let global_usage = calculate_usage(&prev_stats[0], &curr_stats[0]);
+    
     let cores = prev_stats.len() - 1;
     let per_core: Vec<CoreUsage> = (1..=cores).map(|i| {
         let usage = calculate_usage(&prev_stats[i], &curr_stats[i]);
@@ -181,7 +185,8 @@ pub async fn get_cpu_frequency_handler() -> Response {
 #[cfg(not(target_os = "macos"))]
 pub async fn get_cpu_frequency_handler() -> Response {
     // Get max frequency from sysinfo
-    let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::frequency()));
+    // CORRECTED: Use the builder `with_frequency()`
+    let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
     let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
 
     // Get current frequency by reading /sys
@@ -199,8 +204,9 @@ pub async fn get_cpu_frequency_handler() -> Response {
             }
         }
     }
-
+    
     let avg_freq_khz = if core_count > 0 { total_freq_khz / core_count } else { 0 };
+
     let freq_info = CpuFrequency {
         max_frequency_ghz: max_freq_mhz as f32 / 1000.0,
         current_frequency_ghz: avg_freq_khz as f32 / 1_000_000.0, // kHz to GHz
