@@ -1,13 +1,18 @@
-// src/main.rs
-
 mod common;
 mod core;
 mod middlewares;
 mod modules;
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    common::sudo::check_root();
     common::env::load();
     common::log::init();
-    core::bootstrap::init().await;
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            core::bootstrap::init().await;
+        });
 }
