@@ -193,6 +193,7 @@ pub async fn get_storage_handler() -> Response {
 #[cfg(target_os = "linux")]
 pub async fn get_storage_handler() -> Response {
     use std::process::Command;
+    use sysinfo::Disks;
 
     let output = Command::new("lsblk")
         .args(["-d", "-n", "-o", "NAME"])
