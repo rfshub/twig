@@ -47,7 +47,7 @@ pub async fn get_storage_handler() -> Response {
         let entry = disk_map
             .entry(disk_id.clone())
             .or_insert_with(|| (is_removable, Vec::new()));
-        
+
         entry.1.push(PartitionInfo {
             mount_point: disk.mount_point().to_string_lossy().into_owned(),
             file_system: disk.file_system().to_string_lossy().into_owned(),
@@ -70,12 +70,10 @@ pub async fn get_storage_handler() -> Response {
 }
 
 // --- Linux Implementation ---
-
 #[cfg(target_os = "linux")]
 pub async fn get_storage_handler() -> Response {
     use std::process::Command;
 
-    // Get physical disk names from lsblk for reliable disk identification.
     let output = Command::new("lsblk")
         .args(["-d", "-n", "-o", "NAME"])
         .output();
@@ -87,34 +85,32 @@ pub async fn get_storage_handler() -> Response {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect(),
-        Err(_) => Vec::new(), // Fallback to an empty list if lsblk fails.
+        Err(_) => Vec::new(),
     };
 
-    // Get all mounted partitions from sysinfo.
     let disks = Disks::new_with_refreshed_list();
     let mut disk_groups: HashMap<String, DiskGroup> = HashMap::new();
 
-    // Group sysinfo partitions under the physical disks found by lsblk.
     for disk in disks.iter() {
         let disk_name_str = disk.name().to_string_lossy();
-        let mut parent_device: Option<String> = None;
-
-        for p_disk_name in &physical_disks {
-            if disk_name_str.starts_with(&format!("/dev/{}", p_disk_name)) {
-                parent_device = Some(format!("/dev/{}", p_disk_name));
-                break;
+        let parent_device = physical_disks.iter().find_map(|p| {
+            let dev_path = format!("/dev/{}", p);
+            if disk_name_str.starts_with(&dev_path) {
+                Some(dev_path)
+            } else {
+                None
             }
-        }
+        });
 
-        // If a partition has no physical parent, group it by its own name (e.g., 'overlay', 'tmpfs').
-        // Otherwise, group it by its parent device (e.g., '/dev/sda').
-        let group_id = parent_device.unwrap_or_else(|| disk_name_str.to_string());
+        let Some(group_id) = parent_device else {
+            continue;
+        };
+
         let is_removable = disk.is_removable();
-
         let group = disk_groups
             .entry(group_id.clone())
             .or_insert_with(|| DiskGroup {
-                disk_id: group_id,
+                disk_id: group_id.clone(),
                 is_removable,
                 partitions: Vec::new(),
             });
