@@ -32,44 +32,39 @@ struct CpuFrequency {
 
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
-    use procfs::process::Stat;
+    use procfs::CpuStat;
 
-    // Get static info from sysinfo (brand)
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
     let cpu_brand = s.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
-    
-    // Calculate usage from /proc/stat using the procfs crate
-    let stat1 = match Stat::new() {
-        Ok(s) => s,
-        Err(_) => return response::internal_error(),
-    };
-    
-    thread::sleep(time::Duration::from_secs(1));
-    
-    let stat2 = match Stat::new() {
-        Ok(s) => s,
+
+    let stat1 = match CpuStat::new() {
+        Ok(stat) => stat,
         Err(_) => return response::internal_error(),
     };
 
-    // Calculate global usage from the total "cpu" line
-    let total_diff = stat2.total() - stat1.total();
-    let total_time = total_diff.total();
-    let idle_time = total_diff.idle + total_diff.iowait.unwrap_or(0);
-    let global_usage = if total_time == 0 {
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
+    let stat2 = match CpuStat::new() {
+        Ok(stat) => stat,
+        Err(_) => return response::internal_error(),
+    };
+
+    let total_diff = stat2.total - stat1.total;
+    let idle_diff = (stat2.idle + stat2.iowait.unwrap_or(0)) - (stat1.idle + stat1.iowait.unwrap_or(0));
+
+    let global_usage = if total_diff == 0 {
         0.0
     } else {
-        100.0 * (total_time - idle_time) as f32 / total_time as f32
+        100.0 * (total_diff - idle_diff) as f32 / total_diff as f32
     };
-    
-    // Calculate per-core usage, skipping the first 'total' entry in cpu_time
-    let per_core: Vec<CoreUsage> = stat1.cpu_time.iter().zip(stat2.cpu_time.iter()).skip(1).enumerate().map(|(i, (c1, c2))| {
-        let diff = *c2 - *c1;
-        let total_time = diff.total();
-        let idle_time = diff.idle + diff.iowait.unwrap_or(0);
-        let usage = if total_time == 0 {
+
+    let per_core: Vec<CoreUsage> = stat1.cpu_times.iter().zip(stat2.cpu_times.iter()).enumerate().map(|(i, (c1, c2))| {
+        let total_diff = c2.total() - c1.total();
+        let idle_diff = (c2.idle() + c2.iowait.unwrap_or(0)) - (c1.idle() + c1.iowait.unwrap_or(0));
+        let usage = if total_diff == 0 {
             0.0
         } else {
-            100.0 * (total_time - idle_time) as f32 / total_time as f32
+            100.0 * (total_diff - idle_diff) as f32 / total_diff as f32
         };
         CoreUsage { name: i.to_string(), usage }
     }).collect();
