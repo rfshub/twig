@@ -32,7 +32,7 @@ struct CpuFrequency {
 
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
-    use procfs::Stat;
+    use procfs::process::Stat;
 
     // Get static info from sysinfo (brand)
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
