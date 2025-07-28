@@ -63,7 +63,7 @@ fn calculate_usage(prev: &[u64], curr: &[u64]) -> f32 {
     if total_d == 0 {
         0.0
     } else {
-        // Calculation: (total - idle) / total
+        // Calculation: (totald - idled) / totald
         ((total_d - idle_d) as f32 / total_d as f32) * 100.0
     }
 }
@@ -71,7 +71,6 @@ fn calculate_usage(prev: &[u64], curr: &[u64]) -> f32 {
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
     // Get static info from sysinfo (brand, core count)
-    // CORRECTED: Use CpuRefreshKind::new() for basic info which includes brand.
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
     let cpu_brand = s.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
     
@@ -81,7 +80,8 @@ pub async fn get_cpu_handler() -> Response {
         Err(_) => return response::internal_error(),
     };
     
-    thread::sleep(time::Duration::from_millis(200));
+    // Use a 1-second sleep interval as requested for accuracy.
+    thread::sleep(time::Duration::from_secs(1));
     
     let curr_stats = match read_proc_stat() {
         Ok(s) => s,
@@ -184,32 +184,40 @@ pub async fn get_cpu_frequency_handler() -> Response {
 
 #[cfg(not(target_os = "macos"))]
 pub async fn get_cpu_frequency_handler() -> Response {
-    // Get max frequency from sysinfo
-    // CORRECTED: Use the builder `with_frequency()`
+    use std::process::Command;
+    use regex::Regex;
+    
+    // Get max frequency from sysinfo as a reliable fallback.
     let system = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
     let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
+    let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
+    
+    let mut current_frequency_ghz = 0.0;
 
-    // Get current frequency by reading /sys
-    let mut total_freq_khz = 0;
-    let mut core_count = 0;
-    if let Ok(paths) = glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq") {
-        for entry in paths {
-            if let Ok(path) = entry {
-                if let Ok(freq_str) = std::fs::read_to_string(path) {
-                    if let Ok(freq_khz) = freq_str.trim().parse::<u64>() {
-                        total_freq_khz += freq_khz;
-                        core_count += 1;
+    // Execute `cpupower` and parse the output.
+    if let Ok(output) = Command::new("cpupower").arg("frequency-info").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // If it's a virtualized host or driver is missing, current frequency will remain 0.0
+        if !stdout.contains("no or unknown cpufreq driver") && !stdout.contains("Unable to call") {
+            let re = Regex::new(r"current CPU frequency:\s+([\d.]+)\s*(G|M|k)Hz").unwrap();
+            if let Some(caps) = re.captures(&stdout) {
+                if let (Some(val_str), Some(unit_str)) = (caps.get(1), caps.get(2)) {
+                    if let Ok(val) = val_str.as_str().parse::<f32>() {
+                        current_frequency_ghz = match unit_str.as_str() {
+                            "GHz" => val,
+                            "MHz" => val / 1000.0,
+                            "kHz" => val / 1_000_000.0,
+                            _ => 0.0,
+                        };
                     }
                 }
             }
         }
     }
-    
-    let avg_freq_khz = if core_count > 0 { total_freq_khz / core_count } else { 0 };
 
     let freq_info = CpuFrequency {
-        max_frequency_ghz: max_freq_mhz as f32 / 1000.0,
-        current_frequency_ghz: avg_freq_khz as f32 / 1_000_000.0, // kHz to GHz
+        max_frequency_ghz,
+        current_frequency_ghz,
     };
 
     response::success(Some(json!(freq_info)))
