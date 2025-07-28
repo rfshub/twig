@@ -1,4 +1,4 @@
-// src/modules/monitor/cpu.rs
+/* src/modules/monitor/cpu.rs */
 
 use crate::core::response;
 use axum::response::Response;
@@ -6,8 +6,6 @@ use serde::Serialize;
 use serde_json::json;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use std::{thread, time};
-use std::process::Command;
-use regex::Regex;
 
 #[cfg(target_os = "macos")]
 use crate::modules::macmon::fetch::fetch_macmon;
@@ -37,7 +35,7 @@ pub async fn get_cpu_handler() -> Response {
         RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
     );
 
-    thread::sleep(time::Duration::from_millis(100));
+    thread::sleep(time::Duration::from_millis(200));
     system.refresh_cpu();
     let cpus = system.cpus();
     let cpu_brand = cpus
@@ -68,6 +66,9 @@ pub async fn get_cpu_handler() -> Response {
 
 #[cfg(target_os = "macos")]
 pub async fn get_cpu_frequency_handler() -> Response {
+    use std::process::Command;
+    use regex::Regex;
+
     let output = match Command::new("fastfetch").output() {
         Ok(o) => o,
         Err(_) => return response::internal_error(),

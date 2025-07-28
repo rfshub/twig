@@ -1,15 +1,9 @@
-// src/modules/monitor/network.rs
+/* src/modules/monitor/network.rs */
 
 use crate::core::response;
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::json;
-use std::{
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
-};
-use once_cell::sync::Lazy;
 
 #[derive(Serialize, Clone)]
 struct NetworkSnapshot {
@@ -24,6 +18,12 @@ struct NetworkSnapshot {
 mod platform {
     use super::*;
     use std::process::Command;
+    use std::{
+        sync::{Arc, Mutex},
+        thread,
+        time::{Duration, Instant},
+    };
+    use once_cell::sync::Lazy;
 
     pub static CACHE: Lazy<Arc<Mutex<Option<NetworkSnapshot>>>> =
         Lazy::new(|| Arc::new(Mutex::new(None)));
@@ -145,15 +145,26 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
-    use sysinfo::{System};
+    use sysinfo::System;
+    use std::thread;
+    use std::time::Duration;
 
     pub async fn get_network_handler() -> Response {
         let mut sys = System::new();
-        sys.refresh_networks_list();
+
+        sys.refresh_networks();
+        let mut prev_received = 0u64;
+        let mut prev_transmitted = 0u64;
+        for (_, data) in sys.networks() {
+            prev_received += data.total_received();
+            prev_transmitted += data.total_transmitted();
+        }
+
+        thread::sleep(Duration::from_secs(1));
+
         sys.refresh_networks();
         let mut total_received = 0u64;
         let mut total_transmitted = 0u64;
-
         for (_, data) in sys.networks() {
             total_received += data.total_received();
             total_transmitted += data.total_transmitted();
@@ -162,8 +173,8 @@ mod platform {
         let snapshot = NetworkSnapshot {
             total_received,
             total_transmitted,
-            current_received: total_received,
-            current_transmitted: total_transmitted,
+            current_received: total_received.saturating_sub(prev_received),
+            current_transmitted: total_transmitted.saturating_sub(prev_transmitted),
             unit: "bytes",
         };
 
