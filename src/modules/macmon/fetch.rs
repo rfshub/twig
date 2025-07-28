@@ -20,6 +20,7 @@ lazy_static! {
     static ref FETCHING: Arc<TokioMutex<bool>> = Arc::new(TokioMutex::new(false));
 }
 
+#[cfg(target_os = "macos")]
 pub async fn fetch_macmon() -> Option<Value> {
     {
         let mut last_access = LAST_ACCESS.lock().unwrap();

@@ -167,14 +167,13 @@ pub async fn get_cpu_handler() -> Response {
 
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_frequency_handler() -> Response {
+    use num_cpus;
     use std::fs;
     use std::process::Command;
-    use num_cpus;
 
     // Get max frequency from sysinfo, as it's reliable for this.
-    let system = System::new_with_specifics(
-        RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()),
-    );
+    let system =
+        System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
     let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
     let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
 
@@ -184,13 +183,12 @@ pub async fn get_cpu_frequency_handler() -> Response {
             let result = String::from_utf8_lossy(&out.stdout);
             result.trim() != "none"
         }
-        Err(_) => false, // Assume not a VM if the command fails.
+        Err(_) => false,
     };
 
     let current_frequency_ghz = if is_vm {
-        // For VMs, current frequency is often not available or variable.
-        // We return the max frequency as a sensible default.
-        max_frequency_ghz
+        // For VMs, current frequency is not available. Return -1.0 as an indicator.
+        -1.0
     } else {
         // On bare metal, read the current average frequency from the /sys filesystem.
         let core_count = num_cpus::get();
