@@ -10,9 +10,6 @@ use std::{thread, time};
 #[cfg(target_os = "macos")]
 use crate::modules::macmon::fetch::fetch_macmon;
 
-#[cfg(target_os = "linux")]
-use glob::glob;
-
 #[derive(Serialize)]
 struct CoreUsage {
     name: String,
@@ -35,7 +32,7 @@ struct CpuFrequency {
 
 #[cfg(target_os = "linux")]
 pub async fn get_cpu_handler() -> Response {
-    use procfs::stat::Stat;
+    use procfs::Stat;
 
     // Get static info from sysinfo (brand)
     let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
