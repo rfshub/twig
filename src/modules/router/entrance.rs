@@ -2,12 +2,14 @@
 
 use crate::core::response;
 use crate::middlewares;
-use crate::modules::{app, monitor, system};
+use crate::modules::{app, monitor, system, ip};
 use axum::{response::Response, routing::get, Router};
 
 pub fn app_router() -> Router {
     let router = Router::new()
         .route("/", get(app::root::get_root_handler))
+        .route("/v1/ip", get(ip::lookup::get_ip_handler))
+        .route("/v2/ip", get(ip::lookup::get_geoip_handler))
         .route("/v1/system/information",get(system::info::get_sysinfo_handler),)
         .route("/v1/system/ipconfig", get(system::ipconfig::get_ipconfig_handler))
         .route("/v1/monitor/cpu", get(monitor::cpu::get_cpu_handler))
