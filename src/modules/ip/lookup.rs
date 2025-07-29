@@ -178,7 +178,6 @@ fn consolidate_to_most_frequent(field: &mut Value) {
     }
 }
 
-// Deduplicates an array and sorts it by frequency of appearance.
 fn deduplicate_and_sort_by_frequency(field: &mut Value) {
     if let Some(arr) = field.as_array() {
         if arr.is_empty() {
@@ -186,7 +185,16 @@ fn deduplicate_and_sort_by_frequency(field: &mut Value) {
         }
         let mut counts = HashMap::new();
         for val in arr {
+            if let Some(s) = val.as_str() {
+                if s.trim().is_empty() {
+                    continue;
+                }
+            }
             *counts.entry(val.clone()).or_insert(0) += 1;
+        }
+        if counts.is_empty() {
+            *field = Value::Null;
+            return;
         }
         let mut sorted_unique_vals: Vec<_> = counts.into_iter().collect();
         sorted_unique_vals.sort_by(|a, b| b.1.cmp(&a.1));
