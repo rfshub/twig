@@ -22,6 +22,14 @@ pub fn get_rules() -> (HashMap<&'static str, RateLimitRule>, RateLimitRule) {
         },
     );
 
+    path_rules.insert(
+        "/v1/system/information",
+        RateLimitRule {
+            period: Duration::from_secs(3),
+            limit: 15,
+        },
+    );
+
     // --- Define the default rule for all other paths ---
     let default_rule = RateLimitRule {
         period: Duration::from_secs(1),

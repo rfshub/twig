@@ -10,9 +10,17 @@ use base64::{engine::general_purpose, Engine as _};
 use crate::common::setup::compute_token_windows;
 use crate::core::response;
 use crate::common::{log};
+use crate::common::env::CONFIG;
 
 pub async fn handler(req: Request<Body>, next: Next) -> Response {
     if req.uri().path() == "/" {
+        return next.run(req).await;
+    }
+
+    // Development mode bypass
+    let stage = CONFIG.stage.to_lowercase();
+    if stage == "development" || stage == "dev" {
+        log::log(log::LogLevel::Debug, "▪ skip auth");
         return next.run(req).await;
     }
 
