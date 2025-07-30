@@ -5,3 +5,4 @@ pub mod middleware;
 pub mod rate_limiting;
 pub mod router;
 pub mod token;
+pub mod cors;

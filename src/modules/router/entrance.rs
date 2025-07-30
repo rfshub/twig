@@ -3,7 +3,7 @@
 use crate::core::response;
 use crate::middlewares;
 use crate::modules::{app, monitor, system, ip};
-use axum::{response::Response, routing::get, Router};
+use axum::{response::Response, routing::{get}, Router};
 
 pub fn app_router() -> Router {
     let router = Router::new()
