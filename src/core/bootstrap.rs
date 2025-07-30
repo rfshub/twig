@@ -4,6 +4,7 @@ use crate::common::{env, log};
 use crate::middlewares::rate_limiting;
 use crate::modules;
 use crate::core::requirement::run_dependency_check;
+use crate::common::setup::init_token;
 use chrono::Local;
 use sysinfo::{Disks, System};
 
@@ -93,6 +94,8 @@ pub async fn init() {
     log::println(&format!("    ✓ {}", line2));
     log::println(&format!("    ✓ {}", fid));
     log::println("");
+
+    init_token();
     log::log(log::LogLevel::Info, "➜ Starting...");
 
     // --- Start Services ---

@@ -1,6 +1,6 @@
 // src/middlewares/middleware.rs
 
-use crate::middlewares::{guard, rate_limiting};
+use crate::middlewares::{guard, rate_limiting, token};
 use crate::modules::router::blacklist;
 use axum::{middleware, Router};
 
@@ -11,6 +11,7 @@ use axum::{middleware, Router};
 // Request flow: Rate Limiting -> Whitelist(bypass -> Router) -> Blacklist -> Guard -> Router
 pub fn stack(router: Router) -> Router {
     router
+        .layer(middleware::from_fn(token::handler))
         .layer(middleware::from_fn(guard::handler))
         .layer(middleware::from_fn(blacklist::handler))
         // whitelist changed to pure list, skip logic move to blacklist and guard
