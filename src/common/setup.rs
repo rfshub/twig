@@ -29,12 +29,17 @@ pub fn init_token() {
     save_seed_to_file(&all_seeds);
     thread::sleep(Duration::from_millis(2000));
 
-    if cfg!(target_os = "macos") {
+    // === platform specific output ===
+    #[cfg(target_os = "macos")]
+    {
         let encoded = general_purpose::STANDARD.encode(&all_seeds);
         if let Err(e) = copy_to_clipboard(&encoded) {
             eprintln!("! Failed to copy to clipboard: {}", e);
         }
-    } else {
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
         print_seed_base64(&all_seeds);
     }
 
@@ -42,10 +47,14 @@ pub fn init_token() {
     print_seed_ascii(&all_seeds);
     thread::sleep(Duration::from_millis(500));
 
-    if cfg!(target_os = "macos") {
+    #[cfg(target_os = "macos")]
+    {
         println!("\n  Node key copied successfully to clipboard.");
         println!("  Please keep it properly. You will never see it again.\n");
-    } else {
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
         println!("\n  Node key generated successfully");
         println!("  Please keep it properly. You will never see it again.\n");
     }
@@ -98,6 +107,7 @@ fn save_seed_to_file(data: &[u8]) {
     file.write_all(data).expect("! Failed to write token seeds");
 }
 
+#[cfg(not(target_os = "macos"))]
 fn print_seed_base64(data: &[u8]) {
     let encoded = general_purpose::STANDARD.encode(data);
     println!("{}\n", encoded);
