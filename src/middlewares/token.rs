@@ -22,18 +22,26 @@ pub async fn handler(req: Request<Body>, next: Next) -> Response {
         return next.run(req).await;
     }
 
-    let header_token = req
-        .headers()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
+    let raw_header = req.headers().get("authorization");
+    let header_str = raw_header.and_then(|v| v.to_str().ok());
 
+    if raw_header.is_none() {
+        log::log(log::LogLevel::Debug, "▪ 403: no authorization header");
+        return response::forbidden();
+    }
+
+    if header_str.is_none() || !header_str.unwrap().starts_with("Bearer ") {
+        log::log(log::LogLevel::Debug, &format!("▪ 403: invalid header format: {:?}", header_str));
+        return response::forbidden();
+    }
+
+    let token = header_str.unwrap().strip_prefix("Bearer ").unwrap();
     let tokens = compute_token_windows();
-    match header_token {
-        Some(t) if tokens.iter().any(|valid| t == valid) => next.run(req).await,
-        _ => {
-            log::log(log::LogLevel::Debug, "▪ 403");
-            response::forbidden()
-        }
+
+    if tokens.iter().any(|valid| token == valid) {
+        next.run(req).await
+    } else {
+        log::log(log::LogLevel::Debug, &format!("▪ 403: token mismatch, received: {}", token));
+        response::forbidden()
     }
 }
