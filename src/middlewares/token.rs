@@ -18,7 +18,7 @@ pub async fn handler(req: Request<Body>, next: Next) -> Response {
 
     let stage = CONFIG.stage.to_lowercase();
     if stage == "development" || stage == "dev" {
-        log::log(log::LogLevel::Debug, "! skip auth");
+        log::log(log::LogLevel::Debug, "➜ skip auth");
         return next.run(req).await;
     }
 
@@ -26,14 +26,14 @@ pub async fn handler(req: Request<Body>, next: Next) -> Response {
     let header_str = raw_header.and_then(|v| v.to_str().ok());
 
     if raw_header.is_none() {
-        log::log(log::LogLevel::Debug, "! 403: no authorization header");
+        log::log(log::LogLevel::Debug, "▪ 403: no authorization header");
         return response::forbidden();
     }
 
     if header_str.is_none() || !header_str.unwrap().starts_with("Bearer ") {
         log::log(
             log::LogLevel::Debug,
-            &format!("! 403: invalid header format: {:?}", header_str),
+            &format!("▪ 403: invalid header format: {:?}", header_str),
         );
         return response::forbidden();
     }
@@ -47,7 +47,7 @@ pub async fn handler(req: Request<Body>, next: Next) -> Response {
         log::log(
             log::LogLevel::Debug,
             &format!(
-                "! 403: token mismatch, received: {}, expected: {:?}",
+                "▪ 403: token mismatch, received: {}, expected: {:?}",
                 token,
                 tokens
             ),
