@@ -62,7 +62,7 @@ pub fn init_token() {
     thread::sleep(Duration::from_millis(3000));
 }
 
-pub fn compute_token_windows() -> ([String; 6], [String; 6]) {
+pub fn compute_token_windows() -> [String; 3] {
     let mut buf = [0u8; SEED_SIZE * TOKEN_COUNT];
     File::open(PASSWD_PATH)
         .expect("Token seed file not found")
@@ -70,10 +70,11 @@ pub fn compute_token_windows() -> ([String; 6], [String; 6]) {
         .expect("Failed to read token seeds");
 
     let now = Utc::now().timestamp() / 15;
-    let times = [now - 1, now];
-    let mut result = vec![];
+    let times = [now - 1, now, now + 1];
+    let mut tokens = vec![];
 
     for &timestamp in &times {
+        let mut result = vec![];
         for i in 0..TOKEN_COUNT {
             let seed = &buf[i * SEED_SIZE..(i + 1) * SEED_SIZE];
             let mut hasher = Sha256::new();
@@ -83,11 +84,10 @@ pub fn compute_token_windows() -> ([String; 6], [String; 6]) {
             let number = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]) % 1_000_000;
             result.push(format!("{:06}", number));
         }
+        tokens.push(base64::engine::general_purpose::STANDARD.encode(result.join("").as_bytes()));
     }
 
-    let a: [String; 6] = result[..6].to_vec().try_into().unwrap();
-    let b: [String; 6] = result[6..].to_vec().try_into().unwrap();
-    (a, b)
+    tokens.try_into().unwrap()
 }
 
 /* --- Internal helpers --- */
