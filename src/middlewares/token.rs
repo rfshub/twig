@@ -47,9 +47,8 @@ pub async fn handler(req: Request<Body>, next: Next) -> Response {
         log::log(
             log::LogLevel::Debug,
             &format!(
-                "▪ 403: token mismatch, received: {}, expected: {:?}",
-                token,
-                tokens
+                "▪ 403: token mismatch, received: {}",
+                token
             ),
         );
         response::forbidden()
