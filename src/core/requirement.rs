@@ -6,8 +6,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-const MAC_COMMANDS: [&str; 10] = ["df", "networksetup", "ifconfig", "mount", "brew", "netstat", "nettop", "macmon", "fastfetch", "speedtest-cli"];
-const LINUX_COMMANDS: [&str; 8] = ["systemd", "pkg-config", "ip", "systemd-detect-virt", "lsblk", "cpupower", "fastfetch", "speedtest"];
+const MAC_COMMANDS: [&str; 9] = ["df", "networksetup", "ifconfig", "mount", "brew", "netstat", "nettop", "macmon", "fastfetch"];
+const LINUX_COMMANDS: [&str; 7] = ["systemd", "pkg-config", "ip", "systemd-detect-virt", "lsblk", "cpupower", "fastfetch"];
 
 pub fn run_dependency_check() {
     let os = env::consts::OS;
