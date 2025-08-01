@@ -40,7 +40,7 @@ jobs:
           sudo apt update
           sudo apt install -y \
             build-essential pkg-config libssl-dev musl-tools \
-            gcc-aarch64-linux-gnu curl make
+            gcc-aarch64-linux-gnu curl
 
       - name: Install Rust and target
         uses: dtolnay/rust-toolchain@stable
@@ -48,39 +48,17 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
 
-      - name: Build OpenSSL for aarch64-musl
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          set -e
-          INSTALL_DIR="/opt/openssl-aarch64-musl"
-          sudo mkdir -p ${INSTALL_DIR}
-          sudo chown -R $(whoami) ${INSTALL_DIR}
-
-          OPENSSL_VERSION="openssl-1.1.1w"
-          wget "https://www.openssl.org/source/${OPENSSL_VERSION}.tar.gz" -O "${OPENSSL_VERSION}.tar.gz"
-          tar -xzf "${OPENSSL_VERSION}.tar.gz"
-          cd ${OPENSSL_VERSION}
-
-          CFLAGS="-fPIC -D_FORTIFY_SOURCE=0 -std=gnu11" ./Configure linux-aarch64 \
-            --prefix=${INSTALL_DIR} \
-            no-shared \
-            no-async
-
-          make -j$(nproc) CC=aarch64-linux-gnu-gcc
-          make install_sw
-
-          echo "OPENSSL_DIR=${INSTALL_DIR}" >> $GITHUB_ENV
-          echo "OPENSSL_STATIC=true" >> $GITHUB_ENV
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-
       - name: Build binary
+        env:
+          OPENSSL_STATIC: "true"
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            cargo build --verbose --release --target=${{ matrix.target }}
-          elif [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            cargo build --verbose --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
+            export CFLAGS="-D_FORTIFY_SOURCE=0 -std=gnu11"
+          fi
+          if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
-            cargo build --verbose --release --target=${{ matrix.target }}
+            cargo build --release --target=${{ matrix.target }}
           fi
 
       - name: Read crate metadata

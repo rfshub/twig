@@ -1,6 +1,6 @@
 [package]
 name = "twig"
-version = "0.2.3"
+version = "0.2.5"
 edition = "2024"
 
 [dependencies]
@@ -21,7 +21,7 @@ rand = "0.8"
 dotenvy = "0.15"
 regex = "1"
 once_cell = "1.21.3"
-ip-lookup = "0.1.0"
+ip-lookup = "0.1.3"
 futures = "0.3.31"
 itertools = "0.14.0"
 sha2 = "0.10.9"
