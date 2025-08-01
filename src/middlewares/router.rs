@@ -33,7 +33,7 @@ pub fn get_rules() -> (HashMap<&'static str, RateLimitRule>, RateLimitRule) {
     // --- Define the default rule for all other paths ---
     let default_rule = RateLimitRule {
         period: Duration::from_secs(1),
-        limit: 3,
+        limit: 10,
     };
 
     (path_rules, default_rule)

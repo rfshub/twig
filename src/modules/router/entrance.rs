@@ -13,7 +13,6 @@ pub fn app_router() -> Router {
         .route("/v1/system/information",get(system::info::get_sysinfo_handler),)
         .route("/v1/system/ipconfig", get(system::ipconfig::get_ipconfig_handler))
         .route("/v1/monitor/cpu", get(monitor::cpu::get_cpu_handler))
-        .route("/v1/monitor/cpu/frequency", get(monitor::cpu::get_cpu_frequency_handler))
         .route("/v1/monitor/memory", get(monitor::memory::get_memory_handler))
         .route("/v1/monitor/storage", get(monitor::storage::get_storage_handler))
         .route("/v1/monitor/network", get(monitor::network::get_network_handler))

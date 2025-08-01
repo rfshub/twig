@@ -2,230 +2,313 @@
 
 use crate::core::response;
 use axum::response::Response;
+use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
+use tokio::sync::OnceCell;
+use tokio::task::JoinHandle;
 
-#[derive(Serialize)]
+// --- API Response Structs ---
+#[derive(Serialize, Clone)]
 struct CoreUsage {
     core: String,
     usage: f32,
 }
 
-#[derive(Serialize)]
-struct CpuInfo {
-    cpu: String,
-    cores: usize,
-    global_usage: f32,
-    per_core: Vec<CoreUsage>,
-}
-
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct CpuFrequency {
     max_frequency_ghz: f32,
     current_frequency_ghz: f32,
 }
 
-// --- macOS Implementations ---
+#[derive(Serialize, Clone)]
+struct CpuInfo {
+    cpu: String,
+    cores: usize,
+    global_usage: f32,
+    per_core: Vec<CoreUsage>,
+    frequency: CpuFrequency,
+}
 
-#[cfg(target_os = "macos")]
-pub async fn get_cpu_handler() -> Response {
-    use std::{thread, time};
+// --- Internal Structs ---
 
-    let mut system = System::new_with_specifics(
-        RefreshKind::new().with_cpu(CpuRefreshKind::everything()),
-    );
+// Holds all data, both static and dynamic, in a single cache.
+// This is the single source of truth.
+#[derive(Clone, Default)]
+struct CpuDataCache {
+    cpu_brand: String,
+    cores: usize,
+    max_frequency_ghz: f32,
+    global_usage: f32,
+    per_core: Vec<CoreUsage>,
+    current_frequency_ghz: f32,
+    last_api_call: DateTime<Utc>,
+}
 
-    thread::sleep(time::Duration::from_millis(200));
-    system.refresh_cpu();
-    let cpus = system.cpus();
-    let cpu_brand = cpus
-        .first()
-        .map(|cpu| cpu.brand().trim().to_string())
-        .unwrap_or_else(|| "".to_string());
+// Manages the state and the background update task.
+struct CpuMonitor {
+    cache: Arc<Mutex<CpuDataCache>>,
+    task_handle: Mutex<Option<JoinHandle<()>>>,
+}
 
-    let cores = cpus.len();
-    let global_usage = system.global_cpu_info().cpu_usage();
-    let per_core: Vec<CoreUsage> = cpus
-        .iter()
-        .enumerate()
-        .map(|(i, cpu)| CoreUsage {
-            core: i.to_string(),
-            usage: cpu.cpu_usage(),
-        })
-        .collect();
+// --- Platform Specific Data Fetching ---
 
-    let cpu_info = CpuInfo {
-        cpu: cpu_brand,
-        cores,
-        global_usage,
-        per_core,
-    };
-
-    response::success(Some(json!(cpu_info)))
+// Struct for dynamic data returned by platform-specific functions.
+struct CpuDynamicData {
+    global_usage: f32,
+    per_core: Vec<CoreUsage>,
+    current_frequency_ghz: f32,
 }
 
 #[cfg(target_os = "macos")]
-pub async fn get_cpu_frequency_handler() -> Response {
+mod platform {
+    use super::*;
     use crate::modules::macmon::fetch::fetch_macmon;
     use regex::Regex;
     use std::process::Command;
+    use std::{thread, time};
 
-    let output = match Command::new("fastfetch").output() {
-        Ok(o) => o,
-        Err(_) => return response::internal_error(),
-    };
+    // Fetches static info once. This is a blocking function.
+    pub fn fetch_static_info() -> Option<(String, usize, f32)> {
+        let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
+        let cpu_brand = s.cpus().first()?.brand().trim().to_string();
+        let cores = s.cpus().len();
+        let max_frequency_ghz = Command::new("fastfetch")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|stdout| {
+                Regex::new(r"CPU: .*?@ ([\d.]+) GHz")
+                    .ok()?
+                    .captures(&stdout)?
+                    .get(1)?
+                    .as_str()
+                    .parse::<f32>()
+                    .ok()
+            })
+            .unwrap_or(0.0);
+        Some((cpu_brand, cores, max_frequency_ghz))
+    }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let max_freq = Regex::new(r"CPU: .*?@ ([\d.]+) GHz")
-        .ok()
-        .and_then(|re| re.captures(&stdout))
-        .and_then(|caps| caps.get(1))
-        .and_then(|m| m.as_str().parse::<f32>().ok())
-        .unwrap_or(0.0);
+    // Fetches dynamic info.
+    pub async fn fetch_dynamic_info() -> Option<CpuDynamicData> {
+        let usage_info_future = tokio::task::spawn_blocking(move || {
+            let mut system =
+                System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+            thread::sleep(time::Duration::from_millis(200));
+            system.refresh_cpu();
+            let global_usage = system.global_cpu_info().cpu_usage();
+            let per_core: Vec<CoreUsage> = system
+                .cpus()
+                .iter()
+                .enumerate()
+                .map(|(i, cpu)| CoreUsage {
+                    core: i.to_string(),
+                    usage: cpu.cpu_usage(),
+                })
+                .collect();
+            Some((global_usage, per_core))
+        });
 
-    let macmon_data = fetch_macmon().await;
-    let (ep, pp) = macmon_data
-        .and_then(|json| {
-            Some((
-                json["ecpu_usage"][0].as_f64().unwrap_or(0.0),
-                json["pcpu_usage"][0].as_f64().unwrap_or(0.0),
-            ))
+        let current_freq_future = async {
+            if let Some(json) = fetch_macmon().await {
+                let ep = json["ecpu_usage"][0].as_f64().unwrap_or(0.0);
+                let pp = json["pcpu_usage"][0].as_f64().unwrap_or(0.0);
+                Some((((ep + pp) / 2.0) / 1000.0) as f32)
+            } else {
+                Some(0.0)
+            }
+        };
+
+        let (usage_res, freq_res) = tokio::join!(usage_info_future, current_freq_future);
+        let (global_usage, per_core) = usage_res.ok()??;
+        let current_frequency_ghz = freq_res?;
+
+        Some(CpuDynamicData {
+            global_usage,
+            per_core,
+            current_frequency_ghz,
         })
-        .unwrap_or((0.0, 0.0));
-
-    let avg = ((ep + pp) / 2.0) / 1000.0; // MHz -> GHz
-    let freq_info = CpuFrequency {
-        max_frequency_ghz: max_freq,
-        current_frequency_ghz: avg as f32,
-    };
-
-    response::success(Some(json!(freq_info)))
+    }
 }
 
-// --- Linux Implementations ---
-
 #[cfg(target_os = "linux")]
-pub async fn get_cpu_handler() -> Response {
+mod platform {
+    use super::*;
     use linux_sysinfo::get_cpu_usage_json;
+    use num_cpus;
     use regex::Regex;
     use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    struct LinuxCoreUsage {
-        core: usize,
-        usage: f32,
-    }
-
-    // Get static CPU info from sysinfo.
-    let s = System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new()));
-    let mut cpu_brand = s
-        .cpus()
-        .first()
-        .map(|cpu| cpu.brand().trim().to_string())
-        .unwrap_or_else(|| "".to_string());
-
-    let re_radeon = Regex::new(r"\s+with Radeon Graphics$").unwrap();
-    cpu_brand = re_radeon.replace_all(&cpu_brand, "").to_string();
-
-    // If it contains "Graph" (case-insensitive) and has 2+ spaces, shorten to first two words.
-    let re_graph_check = Regex::new(r"(?i)graph").unwrap();
-    if cpu_brand.matches(' ').count() >= 2 && re_graph_check.is_match(&cpu_brand) {
-        let re_truncate = Regex::new(r"^(\S+\s+\S+)\s.*$").unwrap();
-        cpu_brand = re_truncate.replace_all(&cpu_brand, "$1").to_string();
-    }
-
-    // Get usage from the linux-sysinfo crate.
-    let usage_json = match get_cpu_usage_json() {
-        Ok(json) => json,
-        Err(_) => return response::internal_error(),
-    };
-
-    let per_core_usage: Vec<LinuxCoreUsage> = match serde_json::from_str(&usage_json) {
-        Ok(data) => data,
-        Err(_) => return response::internal_error(),
-    };
-
-    if per_core_usage.is_empty() {
-        return response::internal_error();
-    }
-
-    let total_usage: f32 = per_core_usage.iter().map(|c| c.usage).sum();
-    let cores = per_core_usage.len();
-    let global_usage = if cores > 0 {
-        total_usage / cores as f32
-    } else {
-        0.0
-    };
-
-    let per_core: Vec<CoreUsage> = per_core_usage
-        .into_iter()
-        .map(|c| CoreUsage {
-            core: c.core.to_string(),
-            usage: c.usage,
-        })
-        .collect();
-
-    let cpu_info = CpuInfo {
-        cpu: cpu_brand,
-        cores,
-        global_usage,
-        per_core,
-    };
-
-    response::success(Some(json!(cpu_info)))
-}
-
-#[cfg(target_os = "linux")]
-pub async fn get_cpu_frequency_handler() -> Response {
-    use num_cpus;
     use std::fs;
     use std::process::Command;
 
-    // Get max frequency from sysinfo, as it's reliable for this.
-    let system =
-        System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()));
-    let max_freq_mhz = system.cpus().iter().map(|cpu| cpu.frequency()).max().unwrap_or(0);
-    let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
-
-    // Check for virtualization, as VMs may not report current frequency correctly.
-    let is_vm = match Command::new("systemd-detect-virt").output() {
-        Ok(out) => {
-            let result = String::from_utf8_lossy(&out.stdout);
-            result.trim() != "none"
+    pub fn fetch_static_info() -> Option<(String, usize, f32)> {
+        let s = System::new_with_specifics(
+            RefreshKind::new().with_cpu(CpuRefreshKind::new().with_frequency()),
+        );
+        let mut cpu_brand = s.cpus().first()?.brand().trim().to_string();
+        let re_radeon = Regex::new(r"\s+with Radeon Graphics$").ok()?;
+        cpu_brand = re_radeon.replace_all(&cpu_brand, "").to_string();
+        if cpu_brand.matches(' ').count() >= 2
+            && Regex::new(r"(?i)graph").ok()?.is_match(&cpu_brand)
+        {
+            cpu_brand = Regex::new(r"^(\S+\s+\S+)\s.*")
+                .ok()?
+                .replace_all(&cpu_brand, "$1")
+                .to_string();
         }
-        Err(_) => false,
-    };
+        let cores = num_cpus::get();
+        let max_freq_mhz = s.cpus().iter().map(|cpu| cpu.frequency()).max()?;
+        let max_frequency_ghz = max_freq_mhz as f32 / 1000.0;
+        Some((cpu_brand, cores, max_frequency_ghz))
+    }
 
-    let current_frequency_ghz = if is_vm {
-        // For VMs, current frequency is not available. Return -1.0 as an indicator.
-        -1.0
-    } else {
-        // On bare metal, read the current average frequency from the /sys filesystem.
-        let core_count = num_cpus::get();
-        let mut freqs_khz = Vec::new();
+    pub async fn fetch_dynamic_info() -> Option<CpuDynamicData> {
+        #[derive(Deserialize)]
+        struct LinuxCoreUsage {
+            core: usize,
+            usage: f32,
+        }
 
-        for i in 0..core_count {
-            let path = format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq", i);
-            if let Ok(freq_str) = fs::read_to_string(path) {
-                if let Ok(freq_khz) = freq_str.trim().parse::<u64>() {
-                    freqs_khz.push(freq_khz);
+        let usage_data_future = tokio::task::spawn_blocking(move || {
+            let usage_json = get_cpu_usage_json().ok()?;
+            let per_core_usage: Vec<LinuxCoreUsage> = serde_json::from_str(&usage_json).ok()?;
+            if per_core_usage.is_empty() { return None; }
+            let total_usage: f32 = per_core_usage.iter().map(|c| c.usage).sum();
+            let cores = per_core_usage.len();
+            let global_usage = if cores > 0 { total_usage / cores as f32 } else { 0.0 };
+            let per_core = per_core_usage.into_iter().map(|c| CoreUsage { core: c.core.to_string(), usage: c.usage }).collect();
+            Some((global_usage, per_core))
+        });
+
+        let freq_future = tokio::task::spawn_blocking(move || {
+            let is_vm = Command::new("systemd-detect-virt").output().map(|out| String::from_utf8_lossy(&out.stdout).trim() != "none").unwrap_or(false);
+            if is_vm { return Some(-1.0); }
+            let freqs_khz: Vec<u64> = (0..num_cpus::get())
+                .filter_map(|i| fs::read_to_string(format!("/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq", i)).ok())
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if freqs_khz.is_empty() { None } else {
+                let avg_freq_khz = freqs_khz.iter().sum::<u64>() / freqs_khz.len() as u64;
+                Some((avg_freq_khz as f32) / 1_000_000.0)
+            }
+        });
+
+        let (usage_res, freq_res) = tokio::join!(usage_data_future, freq_future);
+        let (global_usage, per_core) = usage_res.ok()??;
+        let current_frequency_ghz = freq_res.ok()??;
+
+        Some(CpuDynamicData {
+            global_usage,
+            per_core,
+            current_frequency_ghz,
+        })
+    }
+}
+
+// --- Monitor Implementation ---
+
+static MONITOR: OnceCell<CpuMonitor> = OnceCell::const_new();
+
+impl CpuMonitor {
+    // Creates a new monitor instance, fetching static data once.
+    // This is now an async function.
+    async fn new() -> Self {
+        // Run the blocking `fetch_static_info` in a dedicated thread.
+        let static_data = tokio::task::spawn_blocking(platform::fetch_static_info).await;
+
+        let (cpu_brand, cores, max_frequency_ghz) = static_data
+            .ok() // Handle JoinError if the task panics
+            .flatten() // Handle Option from fetch_static_info
+            .unwrap_or_else(|| ("Unknown CPU".to_string(), 0, 0.0));
+
+        let initial_cache = CpuDataCache {
+            cpu_brand,
+            cores,
+            max_frequency_ghz,
+            ..Default::default()
+        };
+
+        CpuMonitor {
+            cache: Arc::new(Mutex::new(initial_cache)),
+            task_handle: Mutex::new(None),
+        }
+    }
+
+    // Spawns the background task to update dynamic data.
+    fn spawn_update_task(&self) -> JoinHandle<()> {
+        let cache_clone = Arc::clone(&self.cache);
+        tokio::spawn(async move {
+            loop {
+                // Check if the task should terminate.
+                let last_call = {
+                    let cache_guard = cache_clone.lock().unwrap();
+                    cache_guard.last_api_call
+                };
+
+                if Utc::now().signed_duration_since(last_call) > Duration::seconds(60) {
+                    // No API calls for 1 minute, exiting task.
+                    break;
                 }
+
+                // Fetch new dynamic data.
+                if let Some(dynamic_data) = platform::fetch_dynamic_info().await {
+                    let mut cache_guard = cache_clone.lock().unwrap();
+                    cache_guard.global_usage = dynamic_data.global_usage;
+                    cache_guard.per_core = dynamic_data.per_core;
+                    cache_guard.current_frequency_ghz = dynamic_data.current_frequency_ghz;
+                }
+                // Update every 1 seconds.
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+        })
+    }
+
+    // Main logic for handling an API request.
+    async fn get_data(&self) -> CpuDataCache {
+        {
+            let mut handle_guard = self.task_handle.lock().unwrap();
+            // Check if the task is running. If not, or if it has finished, start a new one.
+            let should_spawn = match handle_guard.as_ref() {
+                Some(handle) => handle.is_finished(),
+                None => true,
+            };
+
+            if should_spawn {
+                *handle_guard = Some(self.spawn_update_task());
             }
         }
+        // Update the last API call timestamp and return a clone of the current cache state.
+        let mut cache_guard = self.cache.lock().unwrap();
+        cache_guard.last_api_call = Utc::now();
+        cache_guard.clone()
+    }
+}
 
-        if freqs_khz.is_empty() {
-            max_frequency_ghz // Fallback if we couldn't read any frequencies.
-        } else {
-            let avg_freq_khz: u64 = freqs_khz.iter().sum::<u64>() / freqs_khz.len() as u64;
-            (avg_freq_khz as f32) / 1_000_000.0 // Convert kHz to GHz.
-        }
+// --- API Handler ---
+
+pub async fn get_cpu_handler() -> Response {
+    // Get or initialize the monitor. `CpuMonitor::new` is now async and correctly handled.
+    let monitor = MONITOR.get_or_init(CpuMonitor::new).await;
+    // Get data from the monitor. This is a fast operation.
+    let cached_data = monitor.get_data().await;
+    // Check if we have valid initial data
+    if cached_data.cpu_brand == "Unknown CPU" {
+        return response::success(None);
+    }
+    // Format the cached data into the final response structure.
+    let info = CpuInfo {
+        cpu: cached_data.cpu_brand,
+        cores: cached_data.cores,
+        global_usage: cached_data.global_usage,
+        per_core: cached_data.per_core,
+        frequency: CpuFrequency {
+            max_frequency_ghz: cached_data.max_frequency_ghz,
+            current_frequency_ghz: cached_data.current_frequency_ghz,
+        },
     };
 
-    let freq_info = CpuFrequency {
-        max_frequency_ghz,
-        current_frequency_ghz,
-    };
-
-    response::success(Some(json!(freq_info)))
+    response::success(Some(json!(info)))
 }

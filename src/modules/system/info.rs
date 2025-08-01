@@ -3,10 +3,28 @@
 use crate::core::response;
 use axum::response::Response;
 use chrono::{DateTime, Duration, Utc};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
+use std::sync::{Arc, Mutex, OnceLock};
 use sysinfo::System;
+
+#[derive(Clone)]
+struct SystemInfoCache {
+    os: String,
+    kernel: String,
+    arch: String,
+    ip: Value,
+    cached_at: DateTime<Utc>,
+}
+
+impl SystemInfoCache {
+    fn is_expired(&self) -> bool {
+        Utc::now().signed_duration_since(self.cached_at) > Duration::minutes(15)
+    }
+}
+
+static CACHE: OnceLock<Arc<Mutex<Option<SystemInfoCache>>>> = OnceLock::new();
 
 fn get_os_info() -> String {
     if cfg!(target_os = "linux") {
@@ -57,6 +75,20 @@ fn get_ip_addresses() -> (Vec<String>, Vec<String>) {
     }
 }
 
+fn get_kernel_string() -> String {
+    if cfg!(target_os = "macos") {
+        format!("darwin {}", System::kernel_version().unwrap_or_else(|| "Unknown".to_string()))
+    } else if cfg!(target_os = "linux") {
+        format!("linux {}", System::kernel_version().unwrap_or_else(|| "Unknown".to_string()))
+    } else {
+        format!(
+            "{} {}",
+            System::name().unwrap_or_else(|| "Unknown".to_string()),
+            System::kernel_version().unwrap_or_else(|| "Unknown".to_string())
+        )
+    }
+}
+
 fn format_uptime_short(uptime_secs: u64) -> String {
     let mut seconds = uptime_secs;
     let years = seconds / (365 * 24 * 3600);
@@ -99,31 +131,43 @@ fn format_uptime_short(uptime_secs: u64) -> String {
     parts.join(" ")
 }
 
-pub async fn get_sysinfo_handler() -> Response {
-    let uptime_secs = System::uptime();
-    let boot_time_utc: DateTime<Utc> = Utc::now() - Duration::seconds(uptime_secs as i64);
-    let kernel_string = if cfg!(target_os = "macos") {
-        format!("darwin {}", System::kernel_version().unwrap_or_else(|| "Unknown".to_string()))
-    } else if cfg!(target_os = "linux") {
-        format!("linux {}", System::kernel_version().unwrap_or_else(|| "Unknown".to_string()))
-    } else {
-        format!(
-            "{} {}",
-            System::name().unwrap_or_else(|| "Unknown".to_string()),
-            System::kernel_version().unwrap_or_else(|| "Unknown".to_string())
-        )
-    };
+fn get_cached_system_info() -> SystemInfoCache {
+    let cache = CACHE.get_or_init(|| Arc::new(Mutex::new(None)));
+    let mut cache_guard = cache.lock().unwrap();
+
+    if let Some(ref cached_info) = *cache_guard {
+        if !cached_info.is_expired() {
+            return cached_info.clone();
+        }
+    }
 
     let (ipv4, ipv6) = get_ip_addresses();
-    let info = json!({
-        "hostname": System::host_name().unwrap_or_else(|| "Unknown".to_string()),
-        "os": get_os_info(),
-        "kernel": kernel_string,
-        "arch": System::cpu_arch().unwrap_or_else(|| "Unknown".to_string()),
-        "ip": {
+    let new_cache = SystemInfoCache {
+        os: get_os_info(),
+        kernel: get_kernel_string(),
+        arch: System::cpu_arch().unwrap_or_else(|| "Unknown".to_string()),
+        ip: json!({
             "ipv4": ipv4,
             "ipv6": ipv6
-        },
+        }),
+        cached_at: Utc::now(),
+    };
+
+    *cache_guard = Some(new_cache.clone());
+    new_cache
+}
+
+pub async fn get_sysinfo_handler() -> Response {
+    let cached_info = get_cached_system_info();
+    let uptime_secs = System::uptime();
+    let boot_time_utc: DateTime<Utc> = Utc::now() - Duration::seconds(uptime_secs as i64);
+    let hostname = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    let info = json!({
+        "hostname": hostname,
+        "os": cached_info.os,
+        "kernel": cached_info.kernel,
+        "arch": cached_info.arch,
+        "ip": cached_info.ip,
         "uptime": {
             "since": boot_time_utc.to_rfc3339(),
             "duration": format_uptime_short(uptime_secs),

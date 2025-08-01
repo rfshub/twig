@@ -26,6 +26,7 @@ futures = "0.3.31"
 itertools = "0.14.0"
 sha2 = "0.10.9"
 base64 = "0.22.1"
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 arboard = "3.6.0"
@@ -34,3 +35,6 @@ arboard = "3.6.0"
 procfs = "0.16"
 num_cpus = "1.17.0"
 linux-sysinfo = "0.1.0"
+
+[build-dependencies]
+bindgen = "0.69"
