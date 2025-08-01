@@ -42,6 +42,18 @@ jobs:
             build-essential pkg-config libssl-dev musl-tools \
             gcc-aarch64-linux-gnu curl
 
+      - name: Configure Cargo for cross-compilation
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          mkdir -p .cargo
+          cat <<EOF > .cargo/config.toml
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-gnu-gcc"
+
+          [target.x86_64-unknown-linux-musl]
+          linker = "musl-gcc"
+          EOF
+
       - name: Install Rust and target
         uses: actions-rs/toolchain@v1
         with:
@@ -50,10 +62,12 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build binary
-        env:
-          OPENSSL_DIR: /usr
         run: |
-          cargo build --release --target=${{ matrix.target }}
+          if [[ "${{ matrix.target }}" == *"-musl" ]]; then
+            cargo build --release --target=${{ matrix.target }} --features openssl/vendored
+          else
+            cargo build --release --target=${{ matrix.target }}
+          fi
 
       - name: Read crate metadata
         id: metadata
