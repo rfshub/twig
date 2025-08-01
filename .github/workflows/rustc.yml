@@ -1,168 +1,128 @@
-name: Rust CI
+# .github/workflows/ci.yml
+
+name: Rust Cross CI
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build_linux:
-    name: Build Linux ${{ matrix.target }}
+  build:
+    name: Build and Package
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
+          # Linux GNU
           - target: x86_64-unknown-linux-gnu
-            toolchain: stable
+            os: ubuntu-latest
+            ext: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: zip
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: deb
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: rpm
+
+          # Linux MUSL
           - target: x86_64-unknown-linux-musl
-            toolchain: stable
-          - target: aarch64-unknown-linux-gnu
-            toolchain: stable
+            os: ubuntu-latest
+            ext: tar.gz
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            ext: zip
           - target: aarch64-unknown-linux-musl
-            toolchain: stable
+            os: ubuntu-latest
+            ext: tar.gz
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            ext: zip
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libssl-dev musl-tools \
-            zip rpm curl xz-utils
-
-      - name: Install musl-cross toolchain for aarch64
-        if: matrix.target == 'aarch64-unknown-linux-musl'
-        run: |
-          curl -LO https://musl.cc/aarch64-linux-musl-cross.tgz
-          tar -xzf aarch64-linux-musl-cross.tgz
-          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
-
-      - name: Install Rust and target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ matrix.toolchain }}
-          targets: ${{ matrix.target }}
-
-      - name: Install cargo-deb for .deb packaging
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo install cargo-deb
-
-      - name: Build binary
-        env:
-          OPENSSL_STATIC: "true"
-        run: |
-          if [[ "${{ matrix.target }}" == *"musl" ]]; then
-            export RUSTFLAGS="-C target-feature=-crt-static"
-            export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
-          fi
-          cargo build --release --target=${{ matrix.target }}
-
-      - name: Read crate metadata
-        id: metadata
-        run: |
-          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
-          version=$(grep '^version =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Package binary archives
-        run: |
-          ARTIFACT_DIR="target/${{ matrix.target }}/release"
-          BINARY_NAME="${{ steps.metadata.outputs.name }}"
-          tar czf "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.tar.gz" -C "${ARTIFACT_DIR}" "${BINARY_NAME}"
-          zip -j "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.zip" "${ARTIFACT_DIR}/${BINARY_NAME}"
-
-      - name: Package .deb
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo deb --target=${{ matrix.target }} --no-build
-
-      - name: Package .rpm
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y rpm-build
-          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-          cargo package --no-verify --allow-dirty
-          cp target/package/${{ steps.metadata.outputs.name }}-${{ steps.metadata.outputs.version }}.tar.gz ~/rpmbuild/SOURCES/
-          rpmbuild -bb build/twig.spec
-
-      - name: Upload Linux Artifacts
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            target/${{ matrix.target }}/release/*.tar.gz
-            target/${{ matrix.target }}/release/*.zip
-            target/debian/*.deb
-            ~/rpmbuild/RPMS/**/*.rpm
-
-  build_arch:
-    name: Build Arch Linux pkg.tar.zst
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build .pkg.tar.zst using Docker
-        run: |
-          docker run --rm -v "$(pwd)":/repo archlinux:base-devel /bin/bash -c "
-            set -euxo pipefail
-            useradd -m builder
-            echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
-            pacman -Syu --noconfirm
-            pacman -S --noconfirm rustup base-devel git sudo
-            chown -R builder:builder /repo
-            su builder -c '
-              set -euxo pipefail
-              cd /repo
-              rustup default stable
-              export CARGO_HOME=\$HOME/.cargo
-              export RUSTUP_HOME=\$HOME/.rustup
-              export PATH=\$CARGO_HOME/bin:\$PATH
-              cd build
-              makepkg -s --noconfirm
-            '
-          "
-
-  build_macos:
-    name: Build macOS ${{ matrix.target }}
-    needs: [build_linux, build_arch]
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
+          # Apple macOS
           - target: x86_64-apple-darwin
-            toolchain: stable
+            os: macos-latest
+            ext: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            ext: zip
           - target: aarch64-apple-darwin
-            toolchain: stable
+            os: macos-latest
+            ext: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            ext: zip
+
+          # Archlinux (manual pkgbuild)
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            ext: pkg.tar.zst
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust and target
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
 
-      - name: Build binary
-        run: cargo build --release --target=${{ matrix.target }}
+      - name: Install Dependencies
+        if: matrix.ext == 'deb' || matrix.ext == 'rpm'
+        run: sudo apt-get update && sudo apt-get install -y cargo-deb cargo-generate-rpm
 
-      - name: Read crate metadata
-        id: metadata
+      - name: Install musl-tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get install -y musl-tools
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build Binary
         run: |
-          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
-          echo "name=$name" >> "$GITHUB_OUTPUT"
+          mkdir -p dist
+          if [[ "${{ matrix.ext }}" == "deb" ]]; then
+            cargo deb --target ${{ matrix.target }} --no-build --output dist/package.deb
+          elif [[ "${{ matrix.ext }}" == "rpm" ]]; then
+            cargo generate-rpm --target ${{ matrix.target }} --output dist
+          elif [[ "${{ matrix.ext }}" == "pkg.tar.zst" ]]; then
+            sudo pacman -Syu --noconfirm base-devel fakeroot
+            cd archlinux && makepkg -fs --noconfirm && mv *.pkg.tar.zst ../dist/
+          else
+            cross build --release --target ${{ matrix.target }}
+            BIN=target/${{ matrix.target }}/release/twig
+            cp $BIN dist/
+            cd dist
+            if [[ "${{ matrix.ext }}" == "tar.gz" ]]; then
+              tar -czf twig-${{ matrix.target }}.tar.gz twig
+            elif [[ "${{ matrix.ext }}" == "zip" ]]; then
+              zip twig-${{ matrix.target }}.zip twig
+            fi
+            cd ..
+          fi
 
-      - name: Package artifacts
-        run: |
-          ARTIFACT_DIR="target/${{ matrix.target }}/release"
-          BINARY_NAME="${{ steps.metadata.outputs.name }}"
-          tar czf "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.tar.gz" -C "${ARTIFACT_DIR}" "${BINARY_NAME}"
-          zip -j "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.zip" "${ARTIFACT_DIR}/${BINARY_NAME}"
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            target/${{ matrix.target }}/release/*.tar.gz
-            target/${{ matrix.target }}/release/*.zip
+          name: twig-${{ matrix.target }}.${{ matrix.ext }}
+          path: dist/twig-${{ matrix.target }}.${{ matrix.ext }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*.tar.gz\ndist/**/*.zip\ndist/**/*.deb\ndist/**/*.rpm\ndist/**/*.pkg.tar.zst
