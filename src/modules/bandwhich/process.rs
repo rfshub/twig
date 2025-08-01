@@ -1,4 +1,5 @@
 /* src/modules/bandwhich/process.rs */
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
@@ -77,6 +78,7 @@ fn start_bandwhich_listener() {
                 let reader = BufReader::new(stdout);
                 let mut current_processes = Vec::new();
                 let restart_timer = Instant::now();
+                let mut refresh_count = 0; // Counter for refresh cycles after a restart.
 
                 // This inner loop reads from a single `bandwhich` instance.
                 for line in reader.lines() {
@@ -88,11 +90,14 @@ fn start_bandwhich_listener() {
                     match line {
                         Ok(line_str) => {
                             if line_str.starts_with("Refreshing:") {
-                                // A new batch of data is starting. Update the global cache with the previous batch.
-                                let mut cache_lock = cache.lock().unwrap();
-                                *cache_lock = current_processes.clone();
+                                // Skip the first data point after restart, as it might be zero.
+                                if refresh_count > 0 {
+                                    let mut cache_lock = cache.lock().unwrap();
+                                    *cache_lock = current_processes.clone();
+                                }
                                 // Clear the temporary list for the new batch.
                                 current_processes.clear();
+                                refresh_count += 1;
                             } else if let Some(proc_info) = parse_line(&line_str) {
                                 current_processes.push(proc_info);
                             }
