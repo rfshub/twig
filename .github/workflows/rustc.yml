@@ -47,6 +47,32 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
+
+      - name: Build OpenSSL for aarch64-musl
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          set -e
+          INSTALL_DIR="/opt/openssl-aarch64-musl"
+          sudo mkdir -p ${INSTALL_DIR}
+          sudo chown -R $(whoami) ${INSTALL_DIR}
+
+          OPENSSL_VERSION="openssl-1.1.1w"
+          wget "https://www.openssl.org/source/${OPENSSL_VERSION}.tar.gz" -O "${OPENSSL_VERSION}.tar.gz"
+          tar -xzf "${OPENSSL_VERSION}.tar.gz"
+          cd ${OPENSSL_VERSION}
+
+          CFLAGS="-fPIC -D_FORTIFY_SOURCE=0 -std=gnu11" ./Configure linux-aarch64 \
+            --prefix=${INSTALL_DIR} \
+            no-shared \
+            no-async
+
+          make -j$(nproc) CC=aarch64-linux-gnu-gcc
+          make install_sw
+
+          echo "OPENSSL_DIR=${INSTALL_DIR}" >> $GITHUB_ENV
+          echo "OPENSSL_STATIC=true" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+
       - name: Build binary
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
