@@ -1,6 +1,6 @@
 # .github/workflows/ci.yml
 
-name: Rust Cross CI
+name: Rust CI
 
 on:
   workflow_dispatch:
@@ -73,7 +73,7 @@ jobs:
 
       - name: Install Dependencies
         if: matrix.ext == 'deb' || matrix.ext == 'rpm'
-        run: sudo apt-get update && sudo apt-get install -y cargo-deb cargo-generate-rpm
+        run: sudo apt-get update && sudo apt-get install -y && cargo install cargo-deb cargo-generate-rpm
 
       - name: Install musl-tools
         if: contains(matrix.target, 'musl')
