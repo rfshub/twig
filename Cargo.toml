@@ -27,6 +27,7 @@ itertools = "0.14.0"
 sha2 = "0.10.9"
 base64 = "0.22.1"
 libc = "0.2"
+openssl = { version = "0.10", optional = true, features = ["vendored"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 arboard = "3.6.0"
@@ -38,3 +39,7 @@ linux-sysinfo = "0.1.0"
 
 [build-dependencies]
 bindgen = "0.69"
+
+[features]
+default = []
+musl-vendored = ["dep:openssl"]

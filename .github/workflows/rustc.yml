@@ -63,8 +63,10 @@ jobs:
       - name: Build binary
         run: |
           if [[ "${{ matrix.target }}" == *"-musl" ]]; then
-            cargo build --release --target=${{ matrix.target }} --features openssl/vendored
+            # For musl, use our custom feature to enable static OpenSSL linking
+            cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
+            # For other targets, build as normal
             cargo build --release --target=${{ matrix.target }}
           fi
 
