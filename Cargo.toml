@@ -1,6 +1,6 @@
 [package]
 name = "twig"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 
 [dependencies]
@@ -44,3 +44,11 @@ num_cpus = "1.16.0"
 [features]
 default = []
 musl-vendored = ["dep:openssl"]
+
+[package.metadata.deb]
+maintainer = "Canmi (Canmi21) <canmicn@gmail.com>"
+copyright = "2025, Canmi"
+depends = "libc6, libsystemd0, iproute2, sysstat, util-linux, linux-cpupower, fastfetch"
+assets = [
+    ["target/release/twig", "/usr/bin/twig", "755"],
+]

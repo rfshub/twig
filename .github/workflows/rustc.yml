@@ -1,52 +1,44 @@
-name: Rust CI
+name: Rust CI & Release
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_linux:
+    name: Build Linux ${{ matrix.target }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-gnu
             toolchain: stable
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+          - target: x86_64-unknown-linux-musl
             toolchain: stable
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
             toolchain: stable
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
+          - target: aarch64-unknown-linux-musl
             toolchain: stable
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            toolchain: stable
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            toolchain: stable
-
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install build dependencies (Ubuntu only)
-        if: contains(matrix.os, 'ubuntu')
+      - name: Install build dependencies
         run: |
-          sudo apt update
-          sudo apt install -y \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev musl-tools \
-            gcc-aarch64-linux-gnu curl
+            gcc-aarch64-linux-gnu zip rpm
 
       - name: Install Rust and target
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
+
+      - name: Install cargo-deb for .deb packaging
+        if: contains(matrix.target, 'gnu')
+        run: cargo install cargo-deb
 
       - name: Build binary
         env:
@@ -69,16 +61,101 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Package binary
+      - name: Package binary archives
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf "${{ steps.metadata.outputs.name }}-${{ matrix.target }}.tar.gz" ${{ steps.metadata.outputs.name }}
+          ARTIFACT_DIR="target/${{ matrix.target }}/release"
+          BINARY_NAME="${{ steps.metadata.outputs.name }}"
+          tar czf "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.tar.gz" -C "${ARTIFACT_DIR}" "${BINARY_NAME}"
+          zip -j "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.zip" "${ARTIFACT_DIR}/${BINARY_NAME}"
+
+      - name: Package .deb
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo deb --target=${{ matrix.target }} --no-build
+
+      - name: Package .rpm
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y rpm-build
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cargo package --no-verify --allow-dirty
+          cp target/package/${{ steps.metadata.outputs.name }}-${{ steps.metadata.outputs.version }}.tar.gz ~/rpmbuild/SOURCES/
+          rpmbuild -bb build/twig.spec
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.metadata.outputs.version }}
-          name: v${{ steps.metadata.outputs.version }}
-          files: target/${{ matrix.target }}/release/${{ steps.metadata.outputs.name }}-${{ matrix.target }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            target/${{ matrix.target }}/release/*.tar.gz
+            target/${{ matrix.target }}/release/*.zip
+            target/debian/*.deb
+            ~/rpmbuild/RPMS/**/*.rpm
+
+  build_arch:
+    name: Build Arch Linux Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build .pkg.tar.zst using Docker
+        run: |
+          docker run --rm -v "$(pwd)":/repo archlinux:base-devel /bin/bash -c "
+            set -e
+            cd /repo
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm rustup base-devel
+            rustup-init -y --default-toolchain stable --profile minimal
+            source \"\$HOME/.cargo/env\"
+            cd build
+            makepkg -s --noconfirm
+          "
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/*.pkg.tar.zst
+
+  build_macos:
+    name: Build macOS ${{ matrix.target }}
+    needs: [build_linux, build_arch]
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            toolchain: stable
+          - target: aarch64-apple-darwin
+            toolchain: stable
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust and target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: ${{ matrix.target }}
+
+      - name: Build binary
+        run: cargo build --release --target=${{ matrix.target }}
+
+      - name: Read crate metadata
+        id: metadata
+        run: |
+          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Package artifacts
+        run: |
+          ARTIFACT_DIR="target/${{ matrix.target }}/release"
+          BINARY_NAME="${{ steps.metadata.outputs.name }}"
+          tar czf "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.tar.gz" -C "${ARTIFACT_DIR}" "${BINARY_NAME}"
+          zip -j "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.zip" "${ARTIFACT_DIR}/${BINARY_NAME}"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.target }}/release/*.tar.gz
+            target/${{ matrix.target }}/release/*.zip
