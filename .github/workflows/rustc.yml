@@ -49,20 +49,15 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build binary
-        # 为 aarch64-musl 目标设置特定的 C 编译标志
         env:
-          # CFLAGS_<target> 是被 cargo/cc crate 识别的标准方式
-          # -D_FORTIFY_SOURCE=0 禁用了和 musl 不兼容的 glibc 安全特性
-          # -std=gnu11 强制使用旧的C标准，避免了 __isoc23_strtol 等链接错误
-          CFLAGS_aarch64_unknown_linux_musl: "-D_FORTIFY_SOURCE=0 -std=gnu11"
-          # 确保 openssl crate 知道我们想要一个静态库
           OPENSSL_STATIC: "true"
         run: |
-          # Use vendored OpenSSL for all musl targets AND for aarch64-gnu cross-compilation
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            export CFLAGS="-D_FORTIFY_SOURCE=0 -std=gnu11"
+          fi
           if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
             cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
-            # For native builds (x86_64-gnu) and macOS, build as normal
             cargo build --release --target=${{ matrix.target }}
           fi
 
