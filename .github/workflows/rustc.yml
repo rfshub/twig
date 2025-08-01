@@ -96,23 +96,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Build .pkg.tar.zst using Docker
         run: |
           docker run --rm -v "$(pwd)":/repo archlinux:base-devel /bin/bash -c "
-            set -e
+            set -euxo pipefail
             cd /repo
             pacman -Syu --noconfirm
-            pacman -S --noconfirm rustup base-devel
+            pacman -S --noconfirm rustup base-devel git
             rustup default stable
-            source \"\$HOME/.cargo/env\"
+            export CARGO_HOME=\"\$HOME/.cargo\"
+            export RUSTUP_HOME=\"\$HOME/.rustup\"
+            export PATH=\"\$CARGO_HOME/bin:\$PATH\"
             cd build
             makepkg -s --noconfirm
           "
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: build/*.pkg.tar.zst
 
   build_macos:
     name: Build macOS ${{ matrix.target }}
