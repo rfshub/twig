@@ -7,8 +7,8 @@ pkgdesc="The core API service is deployed on the guest server and runs via the C
 arch=('x86_64')
 url="https://github.com/rfshub/twig"
 license=('MIT')
-makedepends=('rust', 'cargo')
-depends=('iproute2', 'sysstat', 'util-linux', 'linux-cpupower', 'fastfetch')
+makedepends=('rust' 'cargo')
+depends=('iproute2' 'sysstat' 'util-linux' 'linux-cpupower' 'fastfetch')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 

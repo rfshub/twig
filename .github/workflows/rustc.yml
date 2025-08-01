@@ -28,7 +28,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev musl-tools \
-            gcc-aarch64-linux-gnu zip rpm
+            zip rpm curl xz-utils
+
+      - name: Install musl-cross toolchain for aarch64
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          curl -LO https://musl.cc/aarch64-linux-musl-cross.tgz
+          tar -xzf aarch64-linux-musl-cross.tgz
+          echo "$PWD/aarch64-linux-musl-cross/bin" >> $GITHUB_PATH
 
       - name: Install Rust and target
         uses: dtolnay/rust-toolchain@stable
@@ -37,27 +44,24 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cargo-deb for .deb packaging
-        if: contains(matrix.target, 'gnu')
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo install cargo-deb
 
       - name: Build binary
         env:
           OPENSSL_STATIC: "true"
         run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            export CFLAGS="-D_FORTIFY_SOURCE=0 -std=gnu11"
+          if [[ "${{ matrix.target }}" == *"musl" ]]; then
+            export RUSTFLAGS="-C target-feature=-crt-static"
+            export CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc
           fi
-          if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
-          else
-            cargo build --release --target=${{ matrix.target }}
-          fi
+          cargo build --release --target=${{ matrix.target }}
 
       - name: Read crate metadata
         id: metadata
         run: |
-          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
-          version=$(grep '^version =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
+          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
+          version=$(grep '^version =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -69,7 +73,7 @@ jobs:
           zip -j "${ARTIFACT_DIR}/${BINARY_NAME}-${{ matrix.target }}.zip" "${ARTIFACT_DIR}/${BINARY_NAME}"
 
       - name: Package .deb
-        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo deb --target=${{ matrix.target }} --no-build
 
       - name: Package .rpm
@@ -81,7 +85,7 @@ jobs:
           cp target/package/${{ steps.metadata.outputs.name }}-${{ steps.metadata.outputs.version }}.tar.gz ~/rpmbuild/SOURCES/
           rpmbuild -bb build/twig.spec
 
-      - name: Upload to GitHub Release
+      - name: Upload Linux Artifacts
         uses: softprops/action-gh-release@v1
         with:
           files: |
@@ -91,7 +95,7 @@ jobs:
             ~/rpmbuild/RPMS/**/*.rpm
 
   build_arch:
-    name: Build Linux arch-docker pkg.tar.zst
+    name: Build Arch Linux pkg.tar.zst
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -146,7 +150,7 @@ jobs:
       - name: Read crate metadata
         id: metadata
         run: |
-          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
+          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= \"\(.*\)\"/\1/')
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Package artifacts
