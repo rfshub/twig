@@ -1,4 +1,4 @@
-name: Rust CI & Release
+name: Rust CI
 
 on:
   workflow_dispatch:
@@ -91,7 +91,7 @@ jobs:
             ~/rpmbuild/RPMS/**/*.rpm
 
   build_arch:
-    name: Build Arch Linux Package
+    name: Build Linux arch-docker pkg.tar.zst
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -104,12 +104,11 @@ jobs:
             cd /repo
             pacman -Syu --noconfirm
             pacman -S --noconfirm rustup base-devel
-            rustup-init -y --default-toolchain stable --profile minimal
+            rustup default stable
             source \"\$HOME/.cargo/env\"
             cd build
             makepkg -s --noconfirm
           "
-
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
