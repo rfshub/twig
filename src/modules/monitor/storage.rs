@@ -1,13 +1,11 @@
 /* src/modules/monitor/storage.rs */
 
 use crate::core::response;
+use crate::modules::iostat::pipeline::{fetch_iostat, DiskStat};
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
-
-#[cfg(target_os = "macos")]
-use crate::modules::iostat::pipeline::{fetch_iostat, DiskStat};
 
 #[derive(Serialize, Clone)]
 struct PartitionInfo {
@@ -33,9 +31,7 @@ pub async fn get_storage_handler() -> Response {
     use regex::Regex;
     use std::process::Command;
 
-    // async
     let iostats = fetch_iostat().await.unwrap_or_default();
-
     let mount_output = match Command::new("mount").output() {
         Ok(output) => output,
         Err(_) => {
@@ -206,51 +202,10 @@ pub async fn get_storage_handler() -> Response {
 #[cfg(target_os = "linux")]
 pub async fn get_storage_handler() -> Response {
     use sysinfo::Disks;
-    use tokio::process::Command; // Use tokio's Command for async operations
+    use tokio::process::Command;
 
-    // Fetch I/O stats using iostat
-    let iostat_output = Command::new("iostat")
-        .args(["-d", "-x", "1", "2"]) // Use extended format, 2 reports 1 sec apart
-        .output()
-        .await;
-
-    let mut iostats_map: HashMap<String, DiskStat> = HashMap::new();
-
-    if let Ok(out) = iostat_output {
-        if let Ok(stdout) = String::from_utf8(out.stdout) {
-            // Find the start of the second (and most recent) report
-            if let Some(report_start) = stdout.rfind("Device") {
-                let report = &stdout[report_start..];
-                for line in report.lines().skip(1) { // Skip header line
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() < 5 { continue; } // Need at least device, r/s, w/s, rkB/s, wkB/s
-
-                    let device_name = parts[0].to_string();
-                    let reads_per_sec: f64 = parts[1].parse().unwrap_or(0.0);
-                    let writes_per_sec: f64 = parts[2].parse().unwrap_or(0.0);
-                    let read_kb_per_sec: f64 = parts[3].parse().unwrap_or(0.0);
-                    let write_kb_per_sec: f64 = parts[4].parse().unwrap_or(0.0);
-
-                    let transfers_per_second = reads_per_sec + writes_per_sec;
-                    let kb_per_second = read_kb_per_sec + write_kb_per_sec;
-
-                    let kb_per_transfer = if transfers_per_second > 0.0 {
-                        kb_per_second / transfers_per_second
-                    } else {
-                        0.0
-                    };
-
-                    let mb_per_second = kb_per_second / 1024.0;
-
-                    iostats_map.insert(device_name, DiskStat {
-                        kb_per_transfer,
-                        transfers_per_second,
-                        mb_per_second,
-                    });
-                }
-            }
-        }
-    }
+    // Fetch I/O stats using the unified pipeline function
+    let iostats_map = fetch_iostat().await.unwrap_or_default();
 
     // Get physical disk names from lsblk
     let lsblk_output = Command::new("lsblk")
@@ -285,7 +240,7 @@ pub async fn get_storage_handler() -> Response {
 
         let group_id = format!("/dev/{}", group_id_base);
         let is_removable = disk.is_removable();
-        // Look up I/O stats for the parent physical device
+        // Look up I/O stats for the parent physical device from the fetched map
         let io_stats = iostats_map.get(group_id_base).cloned();
 
         let group = disk_groups
