@@ -5,7 +5,8 @@ linker = "aarch64-linux-gnu-gcc"
 
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-gnu-gcc"
-rustflags = ["-C", "target-feature=-crt-static"]
+ar = "aarch64-linux-gnu-ar"
+rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.x86_64-unknown-linux-musl]
 linker = "musl-gcc"
