@@ -40,7 +40,7 @@ jobs:
           sudo apt update
           sudo apt install -y \
             build-essential pkg-config libssl-dev musl-tools \
-            gcc-aarch64-linux-gnu gcc-multilib curl
+            gcc-aarch64-linux-gnu curl
 
       - name: Install Rust and target
         uses: actions-rs/toolchain@v1
