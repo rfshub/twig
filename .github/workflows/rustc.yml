@@ -96,19 +96,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Build .pkg.tar.zst using Docker
         run: |
           docker run --rm -v "$(pwd)":/repo archlinux:base-devel /bin/bash -c "
             set -euxo pipefail
-            cd /repo
+            useradd -m builder
+            echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
             pacman -Syu --noconfirm
-            pacman -S --noconfirm rustup base-devel git
-            rustup default stable
-            export CARGO_HOME=\"\$HOME/.cargo\"
-            export RUSTUP_HOME=\"\$HOME/.rustup\"
-            export PATH=\"\$CARGO_HOME/bin:\$PATH\"
-            cd build
-            makepkg -s --noconfirm
+            pacman -S --noconfirm rustup base-devel git sudo
+            su builder -c '
+              set -euxo pipefail
+              cd /repo
+              rustup default stable
+              export CARGO_HOME=\$HOME/.cargo
+              export RUSTUP_HOME=\$HOME/.rustup
+              export PATH=\$CARGO_HOME/bin:\$PATH
+              cd build
+              makepkg -s --noconfirm
+            '
           "
 
   build_macos:
