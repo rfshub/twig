@@ -1,12 +1,13 @@
 /* src/modules/monitor/storage.rs */
 
 use crate::core::response;
+use crate::modules::iostat::pipeline::{fetch_iostat, DiskStat};
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct PartitionInfo {
     mount_point: String,
     file_system: String,
@@ -15,11 +16,12 @@ struct PartitionInfo {
     unit: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct DiskGroup {
     disk_id: String,
     is_removable: bool,
     partitions: Vec<PartitionInfo>,
+    io_stats: Option<DiskStat>,
 }
 
 // --- macOS Implementation ---
@@ -28,6 +30,9 @@ pub async fn get_storage_handler() -> Response {
     use axum::http::StatusCode;
     use regex::Regex;
     use std::process::Command;
+
+    // async
+    let iostats = fetch_iostat().await.unwrap_or_default();
 
     let mount_output = match Command::new("mount").output() {
         Ok(output) => output,
@@ -148,6 +153,8 @@ pub async fn get_storage_handler() -> Response {
             continue;
         }
 
+        let current_io_stats = iostats.get(&raw_disk_id).cloned();
+
         let fs_type = fs_type_map
             .get(&info.device)
             .cloned()
@@ -163,12 +170,15 @@ pub async fn get_storage_handler() -> Response {
 
         if !root_disk_raw_id.is_empty() && raw_disk_id == root_disk_raw_id {
             if partition.mount_point == "/" {
+                let internal_io_stats = iostats.get("disk0").cloned();
+
                 let group = disk_groups
                     .entry("Macinto".to_string())
                     .or_insert_with(|| DiskGroup {
                         disk_id: "Macinto".to_string(),
                         is_removable: false,
                         partitions: Vec::new(),
+                        io_stats: internal_io_stats,
                     });
                 group.partitions.push(partition);
             }
@@ -180,6 +190,7 @@ pub async fn get_storage_handler() -> Response {
                     disk_id: group_id,
                     is_removable: true,
                     partitions: Vec::new(),
+                    io_stats: current_io_stats,
                 });
             group.partitions.push(partition);
         }
@@ -192,14 +203,60 @@ pub async fn get_storage_handler() -> Response {
 // --- Linux Implementation ---
 #[cfg(target_os = "linux")]
 pub async fn get_storage_handler() -> Response {
-    use std::process::Command;
     use sysinfo::Disks;
+    use tokio::process::Command; // Use tokio's Command for async operations
 
-    let output = Command::new("lsblk")
+    // Fetch I/O stats using iostat
+    let iostat_output = Command::new("iostat")
+        .args(["-d", "-x", "1", "2"]) // Use extended format, 2 reports 1 sec apart
+        .output()
+        .await;
+
+    let mut iostats_map: HashMap<String, DiskStat> = HashMap::new();
+
+    if let Ok(out) = iostat_output {
+        if let Ok(stdout) = String::from_utf8(out.stdout) {
+            // Find the start of the second (and most recent) report
+            if let Some(report_start) = stdout.rfind("Device") {
+                let report = &stdout[report_start..];
+                for line in report.lines().skip(1) { // Skip header line
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 5 { continue; } // Need at least device, r/s, w/s, rkB/s, wkB/s
+
+                    let device_name = parts[0].to_string();
+                    let reads_per_sec: f64 = parts[1].parse().unwrap_or(0.0);
+                    let writes_per_sec: f64 = parts[2].parse().unwrap_or(0.0);
+                    let read_kb_per_sec: f64 = parts[3].parse().unwrap_or(0.0);
+                    let write_kb_per_sec: f64 = parts[4].parse().unwrap_or(0.0);
+
+                    let transfers_per_second = reads_per_sec + writes_per_sec;
+                    let kb_per_second = read_kb_per_sec + write_kb_per_sec;
+
+                    let kb_per_transfer = if transfers_per_second > 0.0 {
+                        kb_per_second / transfers_per_second
+                    } else {
+                        0.0
+                    };
+
+                    let mb_per_second = kb_per_second / 1024.0;
+
+                    iostats_map.insert(device_name, DiskStat {
+                        kb_per_transfer,
+                        transfers_per_second,
+                        mb_per_second,
+                    });
+                }
+            }
+        }
+    }
+
+    // Get physical disk names from lsblk
+    let lsblk_output = Command::new("lsblk")
         .args(["-d", "-n", "-o", "NAME"])
-        .output();
+        .output()
+        .await;
 
-    let physical_disks: Vec<String> = match output {
+    let physical_disks: Vec<String> = match lsblk_output {
         Ok(out) => String::from_utf8(out.stdout)
             .unwrap_or_default()
             .lines()
@@ -209,6 +266,7 @@ pub async fn get_storage_handler() -> Response {
         Err(_) => Vec::new(),
     };
 
+    // Get partition info and combine with I/O stats
     let disks = Disks::new_with_refreshed_list();
     let mut disk_groups: HashMap<String, DiskGroup> = HashMap::new();
 
@@ -216,7 +274,7 @@ pub async fn get_storage_handler() -> Response {
         let disk_name_str = disk.name().to_string_lossy();
         let parent_device = physical_disks.iter().find(|&p| {
             let dev_path = format!("/dev/{}", p);
-            disk_name_str.starts_with(&dev_path)
+            disk_name_str.starts_with(&dev_path) || disk_name_str.as_ref() == p
         });
 
         let Some(group_id_base) = parent_device else {
@@ -225,12 +283,16 @@ pub async fn get_storage_handler() -> Response {
 
         let group_id = format!("/dev/{}", group_id_base);
         let is_removable = disk.is_removable();
+        // Look up I/O stats for the parent physical device
+        let io_stats = iostats_map.get(group_id_base).cloned();
+
         let group = disk_groups
             .entry(group_id.clone())
             .or_insert_with(|| DiskGroup {
                 disk_id: group_id.clone(),
                 is_removable,
                 partitions: Vec::new(),
+                io_stats,
             });
 
         group.partitions.push(PartitionInfo {
