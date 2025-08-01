@@ -1,11 +1,13 @@
 /* src/modules/monitor/storage.rs */
 
 use crate::core::response;
-use crate::modules::iostat::pipeline::{fetch_iostat, DiskStat};
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
+
+#[cfg(target_os = "macos")]
+use crate::modules::iostat::pipeline::{fetch_iostat, DiskStat};
 
 #[derive(Serialize, Clone)]
 struct PartitionInfo {
