@@ -40,25 +40,21 @@ jobs:
           sudo apt update
           sudo apt install -y \
             build-essential pkg-config libssl-dev musl-tools \
-            gcc-aarch64-linux-gnu curl
+            gcc-aarch64-linux-gnu curl make
 
       - name: Install Rust and target
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
-
       - name: Build binary
-        env:
-          OPENSSL_STATIC: "true"
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            export CFLAGS="-D_FORTIFY_SOURCE=0 -std=gnu11"
-          fi
-          if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
+            cargo build --verbose --release --target=${{ matrix.target }}
+          elif [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            cargo build --verbose --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
-            cargo build --release --target=${{ matrix.target }}
+            cargo build --verbose --release --target=${{ matrix.target }}
           fi
 
       - name: Read crate metadata

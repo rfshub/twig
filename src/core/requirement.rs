@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 const MAC_COMMANDS: [&str; 11] = ["df", "iostat", "networksetup", "bandwhich", "ifconfig", "mount", "brew", "netstat", "nettop", "macmon", "fastfetch"];
-const LINUX_COMMANDS: [&str; 7] = ["systemd", "pkg-config", "ip", "systemd-detect-virt", "lsblk", "cpupower", "fastfetch"];
+const LINUX_COMMANDS: [&str; 8] = ["systemd", "pkg-config", "ip", "systemd-detect-virt", "iostat", "lsblk", "cpupower", "fastfetch"];
 
 pub fn run_dependency_check() {
     let os = env::consts::OS;
