@@ -69,7 +69,7 @@ pub fn compute_token_windows() -> [String; 3] {
         .read_exact(&mut buf)
         .expect("Failed to read token seeds");
 
-    let now = Utc::now().timestamp() / 15;
+    let now = Utc::now().timestamp() / 20;
     let times = [now - 1, now, now + 1];
     let mut tokens = vec![];
 
