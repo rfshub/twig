@@ -105,6 +105,7 @@ jobs:
             echo 'builder ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
             pacman -Syu --noconfirm
             pacman -S --noconfirm rustup base-devel git sudo
+            chown -R builder:builder /repo
             su builder -c '
               set -euxo pipefail
               cd /repo
