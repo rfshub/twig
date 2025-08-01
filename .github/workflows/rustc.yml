@@ -62,11 +62,11 @@ jobs:
 
       - name: Build binary
         run: |
-          if [[ "${{ matrix.target }}" == *"-musl" ]]; then
-            # For musl, use our custom feature to enable static OpenSSL linking
+          # Use vendored OpenSSL for all musl targets AND for aarch64-gnu cross-compilation
+          if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
             cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
-            # For other targets, build as normal
+            # For native builds (x86_64-gnu) and macOS, build as normal
             cargo build --release --target=${{ matrix.target }}
           fi
 
