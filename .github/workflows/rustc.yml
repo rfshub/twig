@@ -1,128 +1,87 @@
-# .github/workflows/ci.yml
-
 name: Rust CI
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
-    name: Build and Package
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          # Linux GNU
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: tar.gz
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: zip
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: deb
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: rpm
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            toolchain: stable
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            toolchain: stable
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            toolchain: stable
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            toolchain: stable
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            toolchain: stable
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            toolchain: stable
 
-          # Linux MUSL
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            ext: tar.gz
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            ext: zip
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            ext: tar.gz
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            ext: zip
-
-          # Apple macOS
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            ext: tar.gz
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            ext: zip
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            ext: tar.gz
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            ext: zip
-
-          # Archlinux (manual pkgbuild)
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: pkg.tar.zst
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Rust
+      - name: Install build dependencies (Ubuntu only)
+        if: contains(matrix.os, 'ubuntu')
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential pkg-config libssl-dev musl-tools \
+            gcc-aarch64-linux-gnu curl zip
+
+      - name: Install Rust and target
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
 
-      - name: Install Dependencies
-        if: matrix.ext == 'deb' || matrix.ext == 'rpm'
-        run: sudo apt-get update && sudo apt-get install -y && cargo install cargo-deb cargo-generate-rpm
-
-      - name: Install musl-tools
-        if: contains(matrix.target, 'musl')
-        run: sudo apt-get install -y musl-tools
-
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Build Binary
+      - name: Build binary
+        env:
+          OPENSSL_STATIC: "true"
         run: |
-          mkdir -p dist
-          if [[ "${{ matrix.ext }}" == "deb" ]]; then
-            cargo deb --target ${{ matrix.target }} --no-build --output dist/package.deb
-          elif [[ "${{ matrix.ext }}" == "rpm" ]]; then
-            cargo generate-rpm --target ${{ matrix.target }} --output dist
-          elif [[ "${{ matrix.ext }}" == "pkg.tar.zst" ]]; then
-            sudo pacman -Syu --noconfirm base-devel fakeroot
-            cd archlinux && makepkg -fs --noconfirm && mv *.pkg.tar.zst ../dist/
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            export CFLAGS="-D_FORTIFY_SOURCE=0 -std=gnu11"
+          fi
+          if [[ "${{ matrix.target }}" == *"-musl" || "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
+            cargo build --release --target=${{ matrix.target }} --no-default-features --features musl-vendored
           else
-            cross build --release --target ${{ matrix.target }}
-            BIN=target/${{ matrix.target }}/release/twig
-            cp $BIN dist/
-            cd dist
-            if [[ "${{ matrix.ext }}" == "tar.gz" ]]; then
-              tar -czf twig-${{ matrix.target }}.tar.gz twig
-            elif [[ "${{ matrix.ext }}" == "zip" ]]; then
-              zip twig-${{ matrix.target }}.zip twig
-            fi
-            cd ..
+            cargo build --release --target=${{ matrix.target }}
           fi
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: twig-${{ matrix.target }}.${{ matrix.ext }}
-          path: dist/twig-${{ matrix.target }}.${{ matrix.ext }}
+      - name: Read crate metadata
+        id: metadata
+        run: |
+          name=$(grep '^name =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
+          version=$(grep '^version =' Cargo.toml | head -n1 | sed 's/.*= "\(.*\)"/\1/')
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf "${{ steps.metadata.outputs.name }}-${{ matrix.target }}.tar.gz" ${{ steps.metadata.outputs.name }}
+          zip "${{ steps.metadata.outputs.name }}-${{ matrix.target }}.zip" ${{ steps.metadata.outputs.name }}
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
         with:
-          files: dist/**/*.tar.gz\ndist/**/*.zip\ndist/**/*.deb\ndist/**/*.rpm\ndist/**/*.pkg.tar.zst
+          tag_name: v${{ steps.metadata.outputs.version }}
+          name: v${{ steps.metadata.outputs.version }}
+          files: |
+            target/${{ matrix.target }}/release/${{ steps.metadata.outputs.name }}-${{ matrix.target }}.tar.gz
+            target/${{ matrix.target }}/release/${{ steps.metadata.outputs.name }}-${{ matrix.target }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
