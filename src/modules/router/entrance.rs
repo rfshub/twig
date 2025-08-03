@@ -21,6 +21,7 @@ pub fn app_router() -> Router {
         .route("/v1/containers", get(docker::ps::get_docker_ps_handler))
         .route("/v1/containers/version", get(docker::versions::get_docker_version_handler))
         .route("/v1/containers/daemon/version", get(docker::versions::get_daemon_version_handler))
+        .route("/v1/containers/info/{id}", get(docker::containers::get_container_handler))
         .fallback(handler_404);
     middlewares::middleware::stack(router)
 }
