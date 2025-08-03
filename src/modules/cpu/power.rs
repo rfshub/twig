@@ -202,7 +202,6 @@ async fn read_arm_iio_power() -> Result<f64, String> {
     }
 }
 
-// Axum
 pub async fn get_cpu_power_handler() -> Response {
     match fetch_cpu_power().await {
         Ok(power_info) => {
@@ -213,11 +212,13 @@ pub async fn get_cpu_power_handler() -> Response {
             });
             response::success(Some(data))
         }
-        Err(err) => {
-            response::error(
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to fetch CPU power: {}", err)
-            )
+        Err(_err) => {
+            let data = json!({
+                "cpu_power": -1,
+                "source": null,
+                "unit": "watts"
+            });
+            response::success(Some(data))
         }
     }
 }
