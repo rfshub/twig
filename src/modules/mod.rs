@@ -8,6 +8,7 @@ pub mod system;
 pub mod ip;
 pub mod iostat;
 pub mod ram;
+pub mod cpu;
 
 #[cfg(target_os = "macos")]
 pub mod macmon;

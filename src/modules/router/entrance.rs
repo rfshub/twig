@@ -2,7 +2,7 @@
 
 use crate::core::response;
 use crate::middlewares;
-use crate::modules::{app, monitor, system, ip,ram};
+use crate::modules::{app, monitor, system, ip, ram, cpu};
 use axum::{response::Response, routing::{get}, Router};
 
 pub fn app_router() -> Router {
@@ -13,6 +13,7 @@ pub fn app_router() -> Router {
         .route("/v1/system/information",get(system::info::get_sysinfo_handler),)
         .route("/v1/system/ipconfig", get(system::ipconfig::get_ipconfig_handler))
         .route("/v1/monitor/cpu", get(monitor::cpu::get_cpu_handler))
+        .route("/v1/monitor/cpu/power", get(cpu::power::get_cpu_power_handler))
         .route("/v1/monitor/memory", get(monitor::memory::get_memory_handler))
         .route("/v1/monitor/storage", get(monitor::storage::get_storage_handler))
         .route("/v1/monitor/network", get(monitor::network::get_network_handler))
