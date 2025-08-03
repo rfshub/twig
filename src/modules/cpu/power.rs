@@ -19,7 +19,6 @@ pub struct CpuPowerInfo {
     pub source: String,
 }
 
-// 获取 CPU 功耗信息的主函数
 pub async fn fetch_cpu_power() -> Result<CpuPowerInfo, String> {
     #[cfg(target_os = "macos")]
     {
