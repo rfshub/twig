@@ -54,7 +54,7 @@ fn start_bandwhich_listener() {
         // This outer loop manages the 60-second inactivity timeout.
         loop {
             if last_access.lock().unwrap().elapsed() > Duration::from_secs(60) {
-                println!("[twig] bandwhich listener timing out due to inactivity.");
+                //println!("bandwhich listener timing out due to inactivity.");
                 *cache.lock().unwrap() = Vec::new(); // Clear cache on exit.
                 *running_flag.lock().unwrap() = false;
                 break; // Exit the management loop.
