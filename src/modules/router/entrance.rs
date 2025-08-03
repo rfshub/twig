@@ -2,7 +2,7 @@
 
 use crate::core::response;
 use crate::middlewares;
-use crate::modules::{app, monitor, system, ip, ram, cpu};
+use crate::modules::{app, monitor, system, ip, ram, cpu, docker};
 use axum::{response::Response, routing::{get}, Router};
 
 pub fn app_router() -> Router {
@@ -18,6 +18,9 @@ pub fn app_router() -> Router {
         .route("/v1/monitor/storage", get(monitor::storage::get_storage_handler))
         .route("/v1/monitor/network", get(monitor::network::get_network_handler))
         .route("/v1/spec/ram", get(ram::spec::get_ram_spec_handler))
+        .route("/v1/containers", get(docker::ps::get_docker_ps_handler))
+        .route("/v1/containers/version", get(docker::versions::get_docker_version_handler))
+        .route("/v1/containers/daemon/version", get(docker::versions::get_daemon_version_handler))
         .fallback(handler_404);
     middlewares::middleware::stack(router)
 }
