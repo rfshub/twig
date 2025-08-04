@@ -3,7 +3,11 @@
 use crate::core::response;
 use crate::middlewares;
 use crate::modules::{app, monitor, system, ip, ram, cpu, docker};
-use axum::{response::Response, routing::{get}, Router};
+use axum::{
+    response::Response,
+    routing::{delete, get, post},
+    Router,
+};
 
 pub fn app_router() -> Router {
     let router = Router::new()
@@ -22,6 +26,14 @@ pub fn app_router() -> Router {
         .route("/v1/containers/version", get(docker::versions::get_docker_version_handler))
         .route("/v1/containers/daemon/version", get(docker::versions::get_daemon_version_handler))
         .route("/v1/containers/info/{id}", get(docker::containers::get_container_handler))
+        .route("/v1/containers/{id}/info", get(docker::containers::get_container_handler))
+        .route("/v1/containers/{id}/start", post(docker::operations::post_start_container_handler))
+        .route("/v1/containers/{id}/stop", post(docker::operations::post_stop_container_handler))
+        .route("/v1/containers/{id}/pause", post(docker::operations::post_pause_container_handler))
+        .route("/v1/containers/{id}/resume", post(docker::operations::post_resume_container_handler))
+        .route("/v1/containers/{id}/restart", post(docker::operations::post_restart_container_handler))
+        .route("/v1/containers/{id}/kill", post(docker::operations::post_kill_container_handler))
+        .route("/v1/containers/{id}", delete(docker::operations::delete_container_handler))
         .fallback(handler_404);
     middlewares::middleware::stack(router)
 }
